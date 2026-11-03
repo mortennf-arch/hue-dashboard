@@ -184,17 +184,40 @@ export class HueClient {
 
   /** Endrer en ressurs, f.eks. PUT /clip/v2/resource/grouped_light/<id> med {"on":{"on":true}}. */
   async put(type: string, id: string, body: unknown): Promise<void> {
-    const res = await bridgeRequest<ClipResponse<unknown>>({
-      ip: this.config.bridgeIp,
-      agent: this.agent,
-      method: "PUT",
-      path: `/clip/v2/resource/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
-      appKey: this.config.appKey,
-      body,
-    });
+    await this.resource("PUT", type, id, body);
+  }
+
+  /** Lager en ny ressurs (rom, sone, scene). Returnerer id-ene broen ga den. */
+  async create(type: string, body: unknown): Promise<{ rid: string; rtype: string }[]> {
+    return (await this.resource("POST", type, undefined, body)) as { rid: string; rtype: string }[];
+  }
+
+  async remove(type: string, id: string): Promise<void> {
+    await this.resource("DELETE", type, id);
+  }
+
+  private async resource(method: string, type: string, id?: string, body?: unknown): Promise<unknown[]> {
+    const path = `/clip/v2/resource/${encodeURIComponent(type)}${id ? `/${encodeURIComponent(id)}` : ""}`;
+    let res: ClipResponse<unknown>;
+    try {
+      res = await bridgeRequest<ClipResponse<unknown>>({
+        ip: this.config.bridgeIp,
+        agent: this.agent,
+        method,
+        path,
+        appKey: this.config.appKey,
+        body,
+      });
+    } catch (err) {
+      // Broen forklarer som regel hva som er galt i errors[]; det er mer nyttig enn statuskoden.
+      const errors = (err instanceof BridgeHttpError && (err.body as ClipResponse<unknown>)?.errors) || [];
+      if (errors.length) throw new Error(errors.map((e) => e.description).join(", "));
+      throw err;
+    }
     if (res?.errors?.length) {
       throw new Error(res.errors.map((e) => e.description).join(", "));
     }
+    return res?.data ?? [];
   }
 
   /**

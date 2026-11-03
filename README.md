@@ -2,7 +2,7 @@
 
 Et lokalt dashbord for Philips Hue. En liten Node.js-server snakker med Hue-broen over hjemmenettet og viser alt som skjer, uten å gå via skyen.
 
-Prosjektet bygges i faser. Nå er **fase 2** på plass: et dashbord i nettleseren med alle rom, lys og scener, live-hendelser, dørklokkevarsel, sikkerhet og batteristatus. Det åpnes på `http://<maskinen>:8095`, også fra mobil på samme Wi-Fi.
+Prosjektet bygges i faser. Nå er **fase 2** på plass: et dashbord i nettleseren med alle rom, lys og scener, live-hendelser, dørklokkevarsel, sikkerhet og batteristatus. Det meste av lysstyringen fra Hue-appen er også med. Det åpnes på `http://<maskinen>:8095`, også fra mobil på samme Wi-Fi.
 
 ## Kjør på TrueNAS (anbefalt)
 
@@ -30,10 +30,18 @@ I dashbordet:
 
 - **Rom og soner**: av/på, lysstyrke og scener for hvert rom og hver sone, med fargen lysene har nå. «Alt av» skrur av hele huset.
 - **Romvisning**: trykk på navnet til et rom for å styre hver lampe for seg, med av/på, lysstyrke, hvittone og farge, og for å se alle scenene.
+- **Rom og soner**: lag nye med «+ Nytt rom» og «+ Ny sone». I romvisningen kan du gi nytt navn, velge romtype, flytte lamper hit og slette.
+- **Scener**: lagre lyset slik det er nå som ny scene, gi nytt navn, bytt innholdet til lyset nå, spill dynamisk med valgfri fart, eller slett.
+- **Hver lampe** («Mer»): gi nytt navn, blink så du finner den, effekter som stearinlys og peis, soloppgang og solnedgang, hva lampen gjør når strømmen kommer tilbake, og hvilket rom den er i.
+- **Farge og hvittone for hele rommet** samtidig.
 - **Dørklokke**: et banner når det ringer på, med status fra kameraet. Det blir borte etter 30 minutter eller når du lukker det.
 - **Sikkerhet**: dørklokke, kamerabevegelse, ringeklokka inne og eventuelle dør- og vindussensorer.
 - **Hendelser**: de siste 100 hendelsene i klartekst.
 - **Helse**: lave batterier og enheter som ikke svarer.
+
+Alt du endrer lagres i broen, så det vises også i Hue-appen. Sletting spør alltid først.
+
+Automasjoner, søk etter nye lamper og Entertainment må fortsatt gjøres i appen.
 
 I loggen (terminalen eller TrueNAS) ser du i tillegg hver rå endring, for eksempel `update  light  Stue taklampe  on.on=false`.
 
