@@ -1,0 +1,13 @@
+# Lim inn i TrueNAS SCALE: Apps > Discover Apps > ⋮ > Install via YAML.
+# Bytt ut de to verdiene merket ENDRE før du lagrer.
+services:
+  hue-dashboard:
+    image: ghcr.io/mortennf-arch/hue-dashboard:latest
+    pull_policy: always
+    restart: unless-stopped
+    user: "568:568"
+    environment:
+      TZ: Europe/Oslo
+      HUE_BRIDGE_IP: "192.168.1.50"   # ENDRE: broens faste IP-adresse
+    volumes:
+      - /mnt/tank/apps/hue-dashboard:/data   # ENDRE: stien til datasettet ditt
