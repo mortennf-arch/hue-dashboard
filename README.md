@@ -28,7 +28,8 @@ Finner den ikke broen, kan du oppgi IP-adressen selv: `npm run dev -- --ip 192.1
 
 I dashbordet:
 
-- **Rom**: av/på, lysstyrke og scener for hvert rom, med fargen lysene har nå. «Alt av» skrur av hele huset.
+- **Rom og soner**: av/på, lysstyrke og scener for hvert rom og hver sone, med fargen lysene har nå. «Alt av» skrur av hele huset.
+- **Romvisning**: trykk på navnet til et rom for å styre hver lampe for seg, med av/på, lysstyrke, hvittone og farge, og for å se alle scenene.
 - **Dørklokke**: et banner når det ringer på, med status fra kameraet. Det blir borte etter 30 minutter eller når du lukker det.
 - **Sikkerhet**: dørklokke, kamerabevegelse, ringeklokka inne og eventuelle dør- og vindussensorer.
 - **Hendelser**: de siste 100 hendelsene i klartekst.

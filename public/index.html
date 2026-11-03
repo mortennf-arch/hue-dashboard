@@ -41,6 +41,11 @@
           </div>
         </div>
         <div class="room-grid" id="rooms"></div>
+
+        <div class="section-head zones-head" id="zones-head">
+          <h2 id="zones-h">Soner</h2>
+        </div>
+        <div class="room-grid" id="zones" aria-labelledby="zones-h"></div>
       </section>
 
       <aside class="side">
@@ -65,6 +70,31 @@
       </aside>
     </div>
   </div>
+  <dialog id="detail" aria-labelledby="detail-title">
+    <div class="detail">
+      <header class="detail-head">
+        <span class="swatch" id="detail-swatch" aria-hidden="true"></span>
+        <h2 id="detail-title"></h2>
+        <div class="grow"></div>
+        <button type="button" class="toggle" id="detail-toggle"></button>
+        <button type="button" class="close" id="detail-close" aria-label="Lukk">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+      <label class="field">
+        <span>Lysstyrke for hele <span id="detail-kind">rommet</span> <output id="detail-dim-out"></output></span>
+        <input type="range" class="dim" id="detail-dim" min="1" max="100" step="1">
+      </label>
+      <section aria-labelledby="detail-scenes-h">
+        <h3 id="detail-scenes-h" class="sub-h">Scener</h3>
+        <div class="scenes" id="detail-scenes"></div>
+      </section>
+      <section aria-labelledby="detail-lights-h">
+        <h3 id="detail-lights-h" class="sub-h">Lamper</h3>
+        <ul class="light-list" id="detail-lights"></ul>
+      </section>
+    </div>
+  </dialog>
   <script src="app.js" type="module"></script>
 </body>
 </html>

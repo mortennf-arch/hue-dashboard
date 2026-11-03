@@ -115,7 +115,7 @@ function roomLights(room) {
   return lights;
 }
 
-function roomView(room) {
+function roomView(room, allScenes = false) {
   const gl = serviceOf(room, "grouped_light");
   const lights = roomLights(room);
   const on = Boolean(gl?.on?.on);
@@ -125,7 +125,7 @@ function roomView(room) {
     .filter((s) => s.group?.rid === room.id)
     .map((s) => ({ id: s.id, name: s.metadata?.name ?? "Scene", active: s.status?.active && s.status.active !== "inactive" }))
     .sort((a, b) => Number(b.active) - Number(a.active) || collator.compare(a.name, b.name))
-    .slice(0, 4);
+    .slice(0, allScenes ? undefined : 4);
   return {
     id: room.id,
     name: room.metadata?.name ?? "Rom",
@@ -210,7 +210,8 @@ const dragging = new Set(); // rom-id som brukeren drar i lysstyrken på nå
 
 function createRoomEl(id) {
   const swatch = h("span", { class: "swatch", "aria-hidden": "true" });
-  const title = h("h3");
+  const openBtn = h("button", { type: "button", class: "room-open", onclick: () => openDetail(id) });
+  const title = h("h3", {}, openBtn);
   const toggle = h("button", { type: "button", class: "toggle" });
   const meta = h("span", { class: "meta" });
   const slider = h("input", { type: "range", class: "dim", min: 1, max: 100, step: 1 });
@@ -254,7 +255,7 @@ function createRoomEl(id) {
     sendBrightness();
   });
 
-  const entry = { el, refs: { swatch, title, toggle, meta, slider, scenes }, sceneKey: "" };
+  const entry = { el, refs: { swatch, title: openBtn, toggle, meta, slider, scenes }, sceneKey: "" };
   roomEls.set(id, entry);
   return entry;
 }
@@ -264,6 +265,7 @@ function updateRoomEl(entry, v) {
   entry.el.classList.toggle("off", !v.on);
   swatch.style.background = v.on && v.tint ? v.tint : "";
   title.textContent = v.name;
+  title.setAttribute("aria-label", `Åpne ${v.name}`);
   toggle.setAttribute("aria-pressed", String(v.on));
   toggle.setAttribute("aria-label", `${v.on ? "Slå av" : "Slå på"} ${v.name}`);
   meta.textContent = `${v.lightCount} lys · ${v.on ? `${v.dim} %` : "av"}`;
@@ -288,11 +290,8 @@ function updateRoomEl(entry, v) {
   }
 }
 
-function renderRooms() {
-  const rooms = all("room").map(roomView).sort((a, b) => collator.compare(a.name, b.name));
-  const shown = filter === "on" ? rooms.filter((r) => r.on) : rooms;
-  const grid = document.getElementById("rooms");
-  const els = shown.map((v) => {
+function fillGrid(grid, views) {
+  const els = views.map((v) => {
     const entry = roomEls.get(v.id) ?? createRoomEl(v.id);
     updateRoomEl(entry, v);
     return entry.el;
@@ -300,8 +299,18 @@ function renderRooms() {
   // Bytter bare ut rekkefølgen når den faktisk har endret seg, slik at fokus og dra-bevegelser beholdes.
   const current = [...grid.children];
   if (current.length !== els.length || current.some((el, i) => el !== els[i])) grid.replaceChildren(...els);
-  const zones = all("zone").length;
-  document.getElementById("rooms-count").textContent = `${rooms.length} rom${zones ? ` · ${zones} soner` : ""}`;
+}
+
+function renderRooms() {
+  const byName = (a, b) => collator.compare(a.name, b.name);
+  const rooms = all("room").map((r) => roomView(r)).sort(byName);
+  const zones = all("zone").map((z) => roomView(z)).sort(byName);
+  const pick = (list) => (filter === "on" ? list.filter((r) => r.on) : list);
+  fillGrid(document.getElementById("rooms"), pick(rooms));
+  const shownZones = pick(zones);
+  fillGrid(document.getElementById("zones"), shownZones);
+  document.getElementById("zones-head").hidden = shownZones.length === 0;
+  document.getElementById("rooms-count").textContent = `${rooms.length} rom${zones.length ? ` · ${zones.length} soner` : ""}`;
 
   const lights = all("light");
   const onCount = lights.filter((l) => l.on?.on).length;
@@ -389,6 +398,244 @@ function renderHealth() {
   );
 }
 
+// ---------- Detaljvisning for ett rom eller én sone ----------
+
+let openGroupId = null;
+const lightEls = new Map(); // lampe-id -> { el, refs }
+
+/** Sender høyst én verdi per `ms`, og alltid den siste. */
+function throttled(ms, fn) {
+  let last = 0;
+  let timer = null;
+  let pending;
+  return (value) => {
+    pending = value;
+    clearTimeout(timer);
+    const wait = last + ms - Date.now();
+    if (wait <= 0) {
+      last = Date.now();
+      fn(pending);
+    } else {
+      timer = setTimeout(() => {
+        last = Date.now();
+        fn(pending);
+      }, wait);
+    }
+  };
+}
+
+function rgbToHex(rgb) {
+  const m = rgb.match(/\d+/g);
+  if (!m || m.length < 3) return "#ffffff";
+  return "#" + m.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+}
+
+function hexToXy(hex) {
+  const lin = (c) => (c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92);
+  const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+  const X = r * 0.4124 + g * 0.3576 + b * 0.1805;
+  const Y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+  const Z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+  const sum = X + Y + Z || 1;
+  return { x: X / sum, y: Y / sum };
+}
+
+function createLightEl(id) {
+  const swatch = h("span", { class: "swatch", "aria-hidden": "true" });
+  const name = h("span");
+  const toggle = h("button", { type: "button", class: "toggle" });
+  const dim = h("input", { type: "range", class: "dim", min: 1, max: 100, step: 1 });
+  const dimField = h("label", {}, "Lysstyrke", dim);
+  const color = h("input", { type: "color", class: "color" });
+  const colorField = h("label", {}, "Farge", color);
+  const ct = h("input", { type: "range", class: "ct", step: 1 });
+  const ctField = h("label", { class: "ct-field" }, "Kaldt – varmt", ct);
+  const note = h("span", { class: "note" });
+  const el = h(
+    "li",
+    { class: "light" },
+    h("div", { class: "light-name" }, swatch, name),
+    toggle,
+    h("div", { class: "light-controls" }, dimField, ctField, colorField),
+    note,
+  );
+
+  const local = () => byId.get(id);
+  toggle.addEventListener("click", () => {
+    const l = local();
+    if (!l) return;
+    const next = !l.on?.on;
+    l.on = { on: next };
+    scheduleRender();
+    api("PUT", `/api/light/${id}`, { on: next });
+  });
+
+  const sendDim = throttled(200, (v) => api("PUT", `/api/light/${id}`, { brightness: v }));
+  dim.addEventListener("pointerdown", () => dragging.add(id));
+  dim.addEventListener("input", () => {
+    const l = local();
+    if (!l) return;
+    l.on = { on: true };
+    l.dimming = { ...(l.dimming ?? {}), brightness: Number(dim.value) };
+    dim.style.setProperty("--fill", `${dim.value}%`);
+    sendDim(Number(dim.value));
+    scheduleRender();
+  });
+  dim.addEventListener("change", () => dragging.delete(id));
+
+  const sendCt = throttled(200, (v) => api("PUT", `/api/light/${id}`, { mirek: v }));
+  ct.addEventListener("pointerdown", () => dragging.add(id));
+  ct.addEventListener("input", () => {
+    const l = local();
+    if (!l) return;
+    l.on = { on: true };
+    l.color_temperature = { ...(l.color_temperature ?? {}), mirek: Number(ct.value), mirek_valid: true };
+    sendCt(Number(ct.value));
+    scheduleRender();
+  });
+  ct.addEventListener("change", () => dragging.delete(id));
+
+  const sendColor = throttled(200, (xy) => api("PUT", `/api/light/${id}`, { xy }));
+  color.addEventListener("focus", () => dragging.add(id));
+  color.addEventListener("blur", () => dragging.delete(id));
+  color.addEventListener("input", () => {
+    const l = local();
+    if (!l) return;
+    const xy = hexToXy(color.value);
+    l.on = { on: true };
+    l.color = { ...(l.color ?? {}), xy };
+    if (l.color_temperature) l.color_temperature = { ...l.color_temperature, mirek_valid: false };
+    sendColor(xy);
+    scheduleRender();
+  });
+
+  const entry = { el, refs: { swatch, name, toggle, dim, dimField, color, colorField, ct, ctField, note } };
+  lightEls.set(id, entry);
+  return entry;
+}
+
+function updateLightEl(entry, l) {
+  const { swatch, name, toggle, dim, dimField, color, colorField, ct, ctField, note } = entry.refs;
+  const on = Boolean(l.on?.on);
+  const label = l.metadata?.name ?? "Lampe";
+  const zb = serviceOf(byId.get(l.owner?.rid), "zigbee_connectivity");
+  const unreachable = zb?.status && zb.status !== "connected";
+  entry.el.classList.toggle("unreachable", Boolean(unreachable));
+  note.textContent = unreachable ? "Svarer ikke. Er den skrudd av på veggbryteren?" : "";
+  note.hidden = !unreachable;
+  name.textContent = label;
+  swatch.style.background = on ? lightColor(l) : "";
+  toggle.setAttribute("aria-pressed", String(on));
+  toggle.setAttribute("aria-label", `${on ? "Slå av" : "Slå på"} ${label}`);
+
+  dimField.hidden = !l.dimming;
+  dim.setAttribute("aria-label", `Lysstyrke ${label}`);
+  const schema = l.color_temperature?.mirek_schema;
+  ctField.hidden = !schema;
+  colorField.hidden = !l.color;
+  color.setAttribute("aria-label", `Farge ${label}`);
+  ct.setAttribute("aria-label", `Hvittone ${label}`);
+  if (dragging.has(l.id)) return;
+  const b = Math.round(l.dimming?.brightness ?? 0);
+  dim.value = String(on ? Math.max(1, b) : 1);
+  dim.style.setProperty("--fill", on ? `${b}%` : "0%");
+  if (schema) {
+    ct.min = String(schema.mirek_minimum ?? 153);
+    ct.max = String(schema.mirek_maximum ?? 500);
+    ct.value = String(l.color_temperature.mirek ?? Math.round((Number(ct.min) + Number(ct.max)) / 2));
+  }
+  if (l.color) color.value = rgbToHex(lightColor(l));
+}
+
+function renderDetail() {
+  const dlg = document.getElementById("detail");
+  const group = openGroupId ? byId.get(openGroupId) : null;
+  if (!group) {
+    if (dlg.open) dlg.close();
+    return;
+  }
+  const v = roomView(group, true);
+  document.getElementById("detail-title").textContent = v.name;
+  document.getElementById("detail-kind").textContent = group.type === "zone" ? "sonen" : "rommet";
+  document.getElementById("detail-swatch").style.background = v.on && v.tint ? v.tint : "";
+  const toggle = document.getElementById("detail-toggle");
+  toggle.setAttribute("aria-pressed", String(v.on));
+  toggle.setAttribute("aria-label", `${v.on ? "Slå av" : "Slå på"} ${v.name}`);
+  const dim = document.getElementById("detail-dim");
+  dim.setAttribute("aria-label", `Lysstyrke ${v.name}`);
+  if (!dragging.has(`detail:${v.id}`)) {
+    dim.value = String(v.on ? Math.max(1, v.dim) : 1);
+    dim.style.setProperty("--fill", v.on ? `${v.dim}%` : "0%");
+  }
+  document.getElementById("detail-dim-out").textContent = v.on ? `${v.dim} %` : "av";
+
+  const scenes = document.getElementById("detail-scenes");
+  const key = v.scenes.map((s) => `${s.id}:${s.active}:${s.name}`).join("|");
+  if (scenes.dataset.key !== key) {
+    scenes.dataset.key = key;
+    scenes.replaceChildren(
+      ...(v.scenes.length
+        ? v.scenes.map((s) =>
+            h("button", { type: "button", class: s.active ? "scene active" : "scene", "aria-pressed": String(Boolean(s.active)), onclick: () => api("POST", `/api/scene/${s.id}/recall`) }, s.name),
+          )
+        : [h("span", { class: "empty" }, "Ingen scener.")]),
+    );
+  }
+
+  const lights = roomLights(group).sort((a, b) => collator.compare(a.metadata?.name ?? "", b.metadata?.name ?? ""));
+  const list = document.getElementById("detail-lights");
+  const els = lights.map((l) => {
+    const entry = lightEls.get(l.id) ?? createLightEl(l.id);
+    updateLightEl(entry, l);
+    return entry.el;
+  });
+  const current = [...list.children];
+  if (current.length !== els.length || current.some((el, i) => el !== els[i])) list.replaceChildren(...els);
+}
+
+function openDetail(id) {
+  openGroupId = id;
+  lightEls.clear();
+  document.getElementById("detail-lights").replaceChildren();
+  document.getElementById("detail-scenes").dataset.key = "";
+  renderDetail();
+  const dlg = document.getElementById("detail");
+  if (!dlg.open) dlg.showModal();
+}
+
+{
+  const dlg = document.getElementById("detail");
+  dlg.addEventListener("close", () => {
+    openGroupId = null;
+    lightEls.clear();
+  });
+  dlg.addEventListener("click", (e) => {
+    if (e.target === dlg) dlg.close(); // klikk utenfor lukker
+  });
+  document.getElementById("detail-close").addEventListener("click", () => dlg.close());
+  document.getElementById("detail-toggle").addEventListener("click", () => {
+    const v = openGroupId && roomView(byId.get(openGroupId));
+    if (!v?.glId) return;
+    byId.get(v.glId).on = { on: !v.on };
+    scheduleRender();
+    api("PUT", `/api/grouped_light/${v.glId}`, { on: !v.on });
+  });
+  const dim = document.getElementById("detail-dim");
+  const sendGroupDim = throttled(300, ({ glId, value }) => api("PUT", `/api/grouped_light/${glId}`, { brightness: value }));
+  dim.addEventListener("pointerdown", () => openGroupId && dragging.add(`detail:${openGroupId}`));
+  dim.addEventListener("input", () => {
+    const v = openGroupId && roomView(byId.get(openGroupId));
+    if (!v?.glId) return;
+    const gl = byId.get(v.glId);
+    gl.on = { on: true };
+    gl.dimming = { ...(gl.dimming ?? {}), brightness: Number(dim.value) };
+    dim.style.setProperty("--fill", `${dim.value}%`);
+    sendGroupDim({ glId: v.glId, value: Number(dim.value) });
+    scheduleRender();
+  });
+  dim.addEventListener("change", () => openGroupId && dragging.delete(`detail:${openGroupId}`));
+}
+
 // ---------- Ringebanner ----------
 
 function latestRing() {
@@ -442,6 +689,7 @@ function scheduleRender() {
     renderHealth();
     renderStatus();
     renderBell();
+    renderDetail();
   });
 }
 
