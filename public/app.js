@@ -70,6 +70,14 @@ function nameOf(res) {
   return ownerName;
 }
 
+/** Navnet appen viser for en lampe: enhetens navn når enheten bare har én lampe. */
+function lightName(l) {
+  const dev = byId.get(l?.owner?.rid);
+  const lightsOnDev = (dev?.services ?? []).filter((s) => s.rtype === "light").length;
+  if (dev?.metadata?.name && lightsOnDev === 1) return dev.metadata.name;
+  return l?.metadata?.name ?? "Lampe";
+}
+
 // ---------- Farger: Hue sine xy- og mirek-verdier til en farge vi kan vise ----------
 
 function xyToRgb(x, y) {
@@ -459,6 +467,8 @@ function createLightEl(id) {
     h("div", { class: "light-controls" }, dimField, ctField, colorField),
     note,
   );
+  const more = createLightMore(id);
+  el.append(more.el);
 
   const local = () => byId.get(id);
   toggle.addEventListener("click", () => {
@@ -509,7 +519,7 @@ function createLightEl(id) {
     scheduleRender();
   });
 
-  const entry = { el, refs: { swatch, name, toggle, dim, dimField, color, colorField, ct, ctField, note } };
+  const entry = { el, refs: { swatch, name, toggle, dim, dimField, color, colorField, ct, ctField, note }, more };
   lightEls.set(id, entry);
   return entry;
 }
@@ -517,7 +527,7 @@ function createLightEl(id) {
 function updateLightEl(entry, l) {
   const { swatch, name, toggle, dim, dimField, color, colorField, ct, ctField, note } = entry.refs;
   const on = Boolean(l.on?.on);
-  const label = l.metadata?.name ?? "Lampe";
+  const label = lightName(l);
   const zb = serviceOf(byId.get(l.owner?.rid), "zigbee_connectivity");
   const unreachable = zb?.status && zb.status !== "connected";
   entry.el.classList.toggle("unreachable", Boolean(unreachable));
@@ -535,6 +545,7 @@ function updateLightEl(entry, l) {
   colorField.hidden = !l.color;
   color.setAttribute("aria-label", `Farge ${label}`);
   ct.setAttribute("aria-label", `Hvittone ${label}`);
+  updateLightMore(entry.more, l);
   if (dragging.has(l.id)) return;
   const b = Math.round(l.dimming?.brightness ?? 0);
   dim.value = String(on ? Math.max(1, b) : 1);
@@ -582,7 +593,7 @@ function renderDetail() {
     );
   }
 
-  const lights = roomLights(group).sort((a, b) => collator.compare(a.metadata?.name ?? "", b.metadata?.name ?? ""));
+  const lights = roomLights(group).sort((a, b) => collator.compare(lightName(a), lightName(b)));
   const list = document.getElementById("detail-lights");
   const els = lights.map((l) => {
     const entry = lightEls.get(l.id) ?? createLightEl(l.id);
@@ -591,6 +602,7 @@ function renderDetail() {
   });
   const current = [...list.children];
   if (current.length !== els.length || current.some((el, i) => el !== els[i])) list.replaceChildren(...els);
+  renderDetailExtras(group, v);
 }
 
 function openDetail(id) {
@@ -598,6 +610,9 @@ function openDetail(id) {
   lightEls.clear();
   document.getElementById("detail-lights").replaceChildren();
   document.getElementById("detail-scenes").dataset.key = "";
+  document.getElementById("scene-manage").open = false;
+  document.getElementById("add-lights").open = false;
+  document.getElementById("group-type").dataset.for = "";
   renderDetail();
   const dlg = document.getElementById("detail");
   if (!dlg.open) dlg.showModal();
@@ -634,6 +649,434 @@ function openDetail(id) {
     scheduleRender();
   });
   dim.addEventListener("change", () => openGroupId && dragging.delete(`detail:${openGroupId}`));
+}
+
+// ---------- Administrasjon: det Hue-appen ellers gjør med rom, soner, scener og lamper ----------
+
+const ARCHETYPES = [
+  ["living_room", "Stue"], ["kitchen", "Kjøkken"], ["dining", "Spisestue"], ["bedroom", "Soverom"],
+  ["kids_bedroom", "Barnerom"], ["nursery", "Babyrom"], ["guest_room", "Gjesterom"], ["bathroom", "Bad"],
+  ["toilet", "Toalett"], ["office", "Kontor"], ["computer", "Datarom"], ["lounge", "Salong"],
+  ["tv", "TV-stue"], ["reading", "Lesekrok"], ["recreation", "Hobbyrom"], ["gym", "Treningsrom"],
+  ["music", "Musikkrom"], ["studio", "Studio"], ["man_cave", "Kjellerstue"], ["hallway", "Gang"],
+  ["front_door", "Inngang"], ["staircase", "Trapp"], ["closet", "Garderobe"], ["storage", "Bod"],
+  ["laundry_room", "Vaskerom"], ["attic", "Loft"], ["downstairs", "Nede"], ["upstairs", "Oppe"],
+  ["top_floor", "Toppetasje"], ["home", "Hjem"], ["garage", "Garasje"], ["carport", "Carport"],
+  ["driveway", "Innkjørsel"], ["garden", "Hage"], ["terrace", "Terrasse"], ["balcony", "Balkong"],
+  ["porch", "Veranda"], ["barbecue", "Grill"], ["pool", "Basseng"], ["other", "Annet"],
+];
+
+const EFFECTS = {
+  no_effect: "Ingen effekt", candle: "Stearinlys", fire: "Peis", prism: "Prisme", sparkle: "Glitter",
+  opal: "Opal", glisten: "Glimt", underwater: "Under vann", cosmos: "Kosmos", sunbeam: "Solstråle", enchant: "Fortryllet",
+};
+
+const POWERUP = [
+  ["safety", "Varmt hvitt, full styrke"],
+  ["powerfail", "Som før strømmen gikk (også av)"],
+  ["last_on_state", "På, med siste farge og styrke"],
+];
+
+function archetypeOptions(select, current) {
+  const known = ARCHETYPES.some(([k]) => k === current);
+  const opts = ARCHETYPES.map(([k, label]) => h("option", { value: k }, label));
+  if (current && !known) opts.unshift(h("option", { value: current }, current));
+  select.replaceChildren(...opts);
+  select.value = current || "other";
+}
+
+const roomOfDevice = (devId) => all("room").find((r) => (r.children ?? []).some((c) => c.rid === devId));
+const lightDevices = () => all("device").filter((d) => (d.services ?? []).some((s) => s.rtype === "light"));
+
+/** Flytter enheter til et rom (eller ut av alle rom når targetId er null). En enhet kan bare være i ett rom. */
+async function assignDevicesToRoom(deviceIds, targetId) {
+  const moving = new Set(deviceIds);
+  for (const room of all("room")) {
+    if (room.id === targetId) continue;
+    const kept = (room.children ?? []).filter((c) => !moving.has(c.rid));
+    if (kept.length !== (room.children ?? []).length) await resource("PUT", "room", room.id, { children: kept });
+  }
+  if (!targetId) return;
+  const target = byId.get(targetId);
+  const children = [...(target.children ?? [])];
+  for (const id of deviceIds) if (!children.some((c) => c.rid === id)) children.push({ rid: id, rtype: "device" });
+  await resource("PUT", "room", targetId, { children });
+}
+
+/** Lyset slik det er nå, som scene-handlinger. */
+function currentActions(group) {
+  return roomLights(group).map((l) => {
+    const on = Boolean(l.on?.on);
+    const action = { on: { on } };
+    if (on) {
+      if (l.dimming) action.dimming = { brightness: Math.max(1, Math.round(l.dimming.brightness ?? 100)) };
+      if (l.color_temperature?.mirek_valid && l.color_temperature.mirek) action.color_temperature = { mirek: l.color_temperature.mirek };
+      else if (l.color?.xy) action.color = { xy: l.color.xy };
+    }
+    return { target: { rid: l.id, rtype: "light" }, action };
+  });
+}
+
+const hasPalette = (scene) => Object.values(scene.palette ?? {}).some((v) => Array.isArray(v) && v.length);
+
+// --- Mer-panelet for hver lampe ---
+
+function createLightMore(id) {
+  const local = () => byId.get(id);
+  const nameIn = h("input", { type: "text", class: "text-in", maxlength: 32, "aria-label": "Nytt navn" });
+  const nameForm = h("form", { class: "inline" }, nameIn, h("button", { type: "submit", class: "small" }, "Gi nytt navn"));
+  nameForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const l = local();
+    const name = nameIn.value.trim();
+    if (!l || !name) return;
+    const dev = byId.get(l.owner?.rid);
+    const single = (dev?.services ?? []).filter((s) => s.rtype === "light").length === 1;
+    if (single) await resource("PUT", "device", dev.id, { metadata: { name } }).catch(() => {});
+    else await resource("PUT", "light", id, { metadata: { name } }).catch(() => {});
+  });
+
+  const blink = h("button", { type: "button", class: "small" }, "Blink, så jeg finner den");
+  blink.addEventListener("click", () => {
+    const l = local();
+    const dev = byId.get(l?.owner?.rid);
+    if (dev) resource("PUT", "device", dev.id, { identify: { action: "identify" } }).catch(() => {});
+    else resource("PUT", "light", id, { identify: { action: "identify" } }).catch(() => {});
+  });
+
+  const effect = h("select", { class: "text-in" });
+  const effectField = h("label", { class: "field" }, h("span", {}, "Effekt"), effect);
+  effect.addEventListener("change", () => {
+    const l = local();
+    if (!l) return;
+    const body = l.effects_v2 ? { effects_v2: { action: { effect: effect.value } } } : { effects: { effect: effect.value } };
+    if (effect.value !== "no_effect" && !l.on?.on) body.on = { on: true };
+    resource("PUT", "light", id, body).catch(() => {});
+  });
+
+  const duration = h("select", { class: "text-in", "aria-label": "Varighet" },
+    [5, 10, 15, 30, 45, 60].map((m) => h("option", { value: m }, `${m} min`)));
+  duration.value = "15";
+  const timed = (fx) => resource("PUT", "light", id, { timed_effects: fx === "no_effect" ? { effect: fx } : { effect: fx, duration: Number(duration.value) * 60_000 } }).catch(() => {});
+  const timedStatus = h("span", { class: "muted" });
+  const timedField = h("div", { class: "field" }, h("span", {}, "Soloppgang og solnedgang"),
+    h("div", { class: "inline" }, duration,
+      h("button", { type: "button", class: "small", onclick: () => timed("sunrise") }, "Soloppgang"),
+      h("button", { type: "button", class: "small", onclick: () => timed("sunset") }, "Solnedgang"),
+      h("button", { type: "button", class: "small", onclick: () => timed("no_effect") }, "Stopp"),
+      timedStatus));
+
+  const powerup = h("select", { class: "text-in" });
+  const powerupField = h("label", { class: "field" }, h("span", {}, "Når strømmen kommer tilbake"), powerup);
+  powerup.addEventListener("change", () => {
+    if (powerup.value === "custom") return;
+    resource("PUT", "light", id, { powerup: { preset: powerup.value } }).catch(() => {});
+  });
+
+  const move = h("select", { class: "text-in" });
+  const moveField = h("label", { class: "field" }, h("span", {}, "Rom"), move);
+  move.addEventListener("change", () => {
+    const dev = byId.get(local()?.owner?.rid);
+    if (!dev) return;
+    const target = move.value || null;
+    const targetName = target ? byId.get(target)?.metadata?.name : "uten rom";
+    if (!confirm(`Flytte ${lightName(local())} til ${targetName}?`)) {
+      move.dataset.key = "";
+      return scheduleRender();
+    }
+    assignDevicesToRoom([dev.id], target).catch(() => {});
+  });
+  const unzone = h("button", { type: "button", class: "small danger" }, "Fjern fra sonen");
+  unzone.addEventListener("click", () => {
+    const zone = byId.get(openGroupId);
+    if (!zone || zone.type !== "zone") return;
+    const children = (zone.children ?? []).filter((c) => c.rid !== id);
+    resource("PUT", "zone", zone.id, { children }).catch(() => {});
+  });
+
+  const body = h("div", { class: "more-body" },
+    h("div", { class: "inline" }, nameForm, blink),
+    h("div", { class: "more-grid" }, effectField, powerupField, moveField),
+    timedField,
+    h("div", { class: "inline" }, unzone));
+  const el = h("details", { class: "more" }, h("summary", {}, "Mer"), body);
+  el.addEventListener("toggle", () => el.open && scheduleRender());
+  return { el, refs: { nameIn, effect, effectField, timedField, timedStatus, powerup, powerupField, move, moveField, unzone } };
+}
+
+function updateLightMore(more, l) {
+  if (!more.el.open) return;
+  const r = more.refs;
+  const active = document.activeElement;
+  if (active !== r.nameIn) r.nameIn.value = lightName(l);
+
+  const values = l.effects_v2?.action?.effect_values ?? l.effects?.effect_values;
+  r.effectField.hidden = !values?.length;
+  if (values?.length && active !== r.effect) {
+    const key = values.join(",");
+    if (r.effect.dataset.key !== key) {
+      r.effect.dataset.key = key;
+      r.effect.replaceChildren(...values.map((v) => h("option", { value: v }, EFFECTS[v] ?? v)));
+    }
+    r.effect.value = l.effects_v2?.status?.effect ?? l.effects?.status ?? "no_effect";
+  }
+
+  const timed = l.timed_effects;
+  r.timedField.hidden = !timed;
+  r.timedStatus.textContent = timed?.status === "sunrise" ? "Soloppgang pågår" : timed?.status === "sunset" ? "Solnedgang pågår" : "";
+
+  r.powerupField.hidden = !l.powerup;
+  if (l.powerup && active !== r.powerup) {
+    const opts = POWERUP.map(([k, label]) => h("option", { value: k }, label));
+    if (l.powerup.preset === "custom") opts.push(h("option", { value: "custom" }, "Egendefinert (fra appen)"));
+    r.powerup.replaceChildren(...opts);
+    r.powerup.value = l.powerup.preset;
+  }
+
+  const group = byId.get(openGroupId);
+  const inZone = group?.type === "zone";
+  r.unzone.hidden = !inZone;
+  const dev = byId.get(l.owner?.rid);
+  r.moveField.hidden = !dev;
+  if (dev && active !== r.move) {
+    const rooms = all("room").sort((a, b) => collator.compare(a.metadata?.name ?? "", b.metadata?.name ?? ""));
+    const current = roomOfDevice(dev.id)?.id ?? "";
+    const key = rooms.map((x) => `${x.id}:${x.metadata?.name}`).join("|") + current;
+    if (r.move.dataset.key !== key) {
+      r.move.dataset.key = key;
+      r.move.replaceChildren(h("option", { value: "" }, "Uten rom"), ...rooms.map((x) => h("option", { value: x.id }, x.metadata?.name ?? "Rom")));
+      r.move.value = current;
+    }
+  }
+}
+
+// --- Detaljvisningen: farge for alle, scener, legge til lamper, innstillinger ---
+
+function renderDetailExtras(group, v) {
+  const lights = roomLights(group);
+  const ctLights = lights.filter((l) => l.color_temperature?.mirek_schema);
+  const colorLights = lights.filter((l) => l.color);
+  document.getElementById("detail-ct").closest("label").hidden = !ctLights.length;
+  document.getElementById("detail-color").closest("label").hidden = !colorLights.length;
+  document.getElementById("detail-color-row").hidden = !ctLights.length && !colorLights.length;
+  if (!dragging.has(`detailcolor:${group.id}`)) {
+    const lit = lights.find((l) => l.on?.on && l.color_temperature?.mirek_valid);
+    if (lit) document.getElementById("detail-ct").value = String(lit.color_temperature.mirek);
+    if (v.tint) document.getElementById("detail-color").value = rgbToHex(v.tint);
+  }
+
+  // Scener som kan redigeres.
+  const list = document.getElementById("scene-list");
+  const manage = document.getElementById("scene-manage");
+  const scenes = all("scene").filter((s) => s.group?.rid === group.id).sort((a, b) => collator.compare(a.metadata?.name ?? "", b.metadata?.name ?? ""));
+  const key = scenes.map((s) => `${s.id}:${s.metadata?.name}:${s.speed}:${hasPalette(s)}`).join("|");
+  if (manage.open && list.dataset.key !== key && !list.contains(document.activeElement)) {
+    list.dataset.key = key;
+    list.replaceChildren(...(scenes.length ? scenes.map(sceneRow) : [h("li", { class: "empty" }, "Ingen scener ennå.")]));
+  }
+
+  // Lamper som kan legges til.
+  const add = document.getElementById("add-lights");
+  const isZone = group.type === "zone";
+  document.getElementById("add-lights-summary").textContent = isZone ? "Legg til lamper i sonen" : "Flytt lamper hit";
+  document.getElementById("add-lights-hint").textContent = isZone
+    ? "En lampe kan være med i flere soner samtidig."
+    : "En lampe kan bare være i ett rom, så den flyttes hit fra rommet den er i nå.";
+  if (add.open) {
+    const pick = document.getElementById("add-lights-list");
+    const items = isZone ? zoneCandidates(group) : roomCandidates(group);
+    const ikey = items.map((i) => i.id + i.note).join("|");
+    if (pick.dataset.key !== ikey) {
+      pick.dataset.key = ikey;
+      pick.replaceChildren(...(items.length ? items.map(pickItem) : [h("p", { class: "empty" }, "Ingen flere lamper å legge til.")]));
+    }
+  }
+
+  // Innstillinger fylles bare når dialogen åpnes, eller når ingen redigerer.
+  const form = document.getElementById("group-settings");
+  if (!form.contains(document.activeElement)) {
+    document.getElementById("group-name").value = group.metadata?.name ?? "";
+    document.getElementById("group-type-field").querySelector("span").textContent = isZone ? "Sonetype" : "Romtype";
+    const sel = document.getElementById("group-type");
+    if (sel.dataset.for !== `${group.id}:${group.metadata?.archetype}`) {
+      sel.dataset.for = `${group.id}:${group.metadata?.archetype}`;
+      archetypeOptions(sel, group.metadata?.archetype);
+    }
+    document.getElementById("group-delete").textContent = isZone ? "Slett sonen" : "Slett rommet";
+  }
+}
+
+function pickItem(item) {
+  return h("label", { class: "pick" }, h("input", { type: "checkbox", value: item.id }), h("span", {}, item.name), item.note ? h("span", { class: "muted" }, item.note) : null);
+}
+
+function roomCandidates(room) {
+  return lightDevices()
+    .filter((d) => !(room?.children ?? []).some((c) => c.rid === d.id))
+    .map((d) => ({ id: d.id, name: d.metadata?.name ?? "Lampe", note: roomOfDevice(d.id)?.metadata?.name ?? "uten rom" }))
+    .sort((a, b) => collator.compare(a.note, b.note) || collator.compare(a.name, b.name));
+}
+
+function zoneCandidates(zone) {
+  return all("light")
+    .filter((l) => !(zone?.children ?? []).some((c) => c.rid === l.id))
+    .map((l) => ({ id: l.id, name: lightName(l), note: roomOfDevice(l.owner?.rid)?.metadata?.name ?? "uten rom" }))
+    .sort((a, b) => collator.compare(a.note, b.note) || collator.compare(a.name, b.name));
+}
+
+const checked = (box) => [...box.querySelectorAll("input[type=checkbox]:checked")].map((i) => i.value);
+
+function sceneRow(scene) {
+  const nameIn = h("input", { type: "text", class: "text-in", maxlength: 32, value: scene.metadata?.name ?? "", "aria-label": "Navn på scenen" });
+  const form = h("form", { class: "inline grow" }, nameIn, h("button", { type: "submit", class: "small" }, "Gi nytt navn"));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = nameIn.value.trim();
+    if (name) resource("PUT", "scene", scene.id, { metadata: { name } }).catch(() => {});
+    nameIn.blur();
+  });
+  const group = byId.get(scene.group?.rid);
+  const actions = h("div", { class: "inline" },
+    hasPalette(scene) ? h("button", { type: "button", class: "small", onclick: () => resource("PUT", "scene", scene.id, { recall: { action: "dynamic_palette" } }).catch(() => {}) }, "Spill dynamisk") : null,
+    h("button", {
+      type: "button", class: "small",
+      onclick: () => group && confirm(`Erstatte «${scene.metadata?.name}» med lyset slik det er nå?`) && resource("PUT", "scene", scene.id, { actions: currentActions(group) }).catch(() => {}),
+    }, "Bytt til lyset nå"),
+    h("button", {
+      type: "button", class: "small danger",
+      onclick: () => confirm(`Slette scenen «${scene.metadata?.name}»? Den forsvinner også fra Hue-appen.`) && resource("DELETE", "scene", scene.id).catch(() => {}),
+    }, "Slett"));
+  let speed = null;
+  if (hasPalette(scene)) {
+    const input = h("input", { type: "range", class: "dim", min: 0, max: 100, step: 1, value: Math.round((scene.speed ?? 0.5) * 100), "aria-label": "Fart" });
+    input.style.setProperty("--fill", `${input.value}%`);
+    input.addEventListener("input", () => input.style.setProperty("--fill", `${input.value}%`));
+    input.addEventListener("change", () => resource("PUT", "scene", scene.id, { speed: Number(input.value) / 100 }).catch(() => {}));
+    speed = h("label", { class: "field" }, h("span", {}, "Fart på dynamisk modus"), input);
+  }
+  return h("li", { class: "manage-item" }, form, actions, speed);
+}
+
+{
+  const ct = document.getElementById("detail-ct");
+  const color = document.getElementById("detail-color");
+  const glOf = () => openGroupId && roomView(byId.get(openGroupId)).glId;
+  const sendCt = throttled(1000, ({ glId, mirek }) => api("PUT", `/api/grouped_light/${glId}`, { mirek }));
+  const sendColor = throttled(1000, ({ glId, xy }) => api("PUT", `/api/grouped_light/${glId}`, { xy }));
+  const hold = () => openGroupId && dragging.add(`detailcolor:${openGroupId}`);
+  const release = () => openGroupId && dragging.delete(`detailcolor:${openGroupId}`);
+  ct.addEventListener("pointerdown", hold);
+  ct.addEventListener("change", release);
+  ct.addEventListener("input", () => glOf() && sendCt({ glId: glOf(), mirek: Number(ct.value) }));
+  color.addEventListener("focus", hold);
+  color.addEventListener("blur", release);
+  color.addEventListener("input", () => glOf() && sendColor({ glId: glOf(), xy: hexToXy(color.value) }));
+
+  document.getElementById("scene-manage").addEventListener("toggle", () => {
+    document.getElementById("scene-list").dataset.key = "";
+    scheduleRender();
+  });
+  document.getElementById("add-lights").addEventListener("toggle", () => {
+    document.getElementById("add-lights-list").dataset.key = "";
+    scheduleRender();
+  });
+
+  document.getElementById("scene-save").addEventListener("click", async () => {
+    const group = byId.get(openGroupId);
+    if (!group) return;
+    const name = prompt("Navn på den nye scenen:", "")?.trim();
+    if (!name) return;
+    await resource("POST", "scene", null, {
+      metadata: { name: name.slice(0, 32) },
+      group: { rid: group.id, rtype: group.type },
+      actions: currentActions(group),
+    }).catch(() => {});
+  });
+
+  document.getElementById("add-lights-go").addEventListener("click", async () => {
+    const group = byId.get(openGroupId);
+    const ids = checked(document.getElementById("add-lights-list"));
+    if (!group || !ids.length) return;
+    try {
+      if (group.type === "zone") {
+        const children = [...(group.children ?? []), ...ids.map((rid) => ({ rid, rtype: "light" }))];
+        await resource("PUT", "zone", group.id, { children });
+      } else {
+        await assignDevicesToRoom(ids, group.id);
+      }
+      document.getElementById("add-lights").open = false;
+    } catch {}
+  });
+
+  document.getElementById("group-settings").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const group = byId.get(openGroupId);
+    const name = document.getElementById("group-name").value.trim();
+    if (!group || !name) return;
+    resource("PUT", group.type, group.id, { metadata: { name, archetype: document.getElementById("group-type").value } }).catch(() => {});
+    document.activeElement?.blur();
+  });
+
+  document.getElementById("group-delete").addEventListener("click", async () => {
+    const group = byId.get(openGroupId);
+    if (!group) return;
+    const what = group.type === "zone" ? "sonen" : "rommet";
+    const extra = group.type === "zone" ? "Lampene blir ikke slettet." : "Lampene blir liggende uten rom, og scenene for rommet slettes.";
+    if (!confirm(`Slette ${what} «${group.metadata?.name}»? ${extra} Det forsvinner også fra Hue-appen.`)) return;
+    try {
+      await resource("DELETE", group.type, group.id);
+      document.getElementById("detail").close();
+    } catch {}
+  });
+}
+
+// --- Nytt rom eller ny sone ---
+
+{
+  const dlg = document.getElementById("create");
+  const form = document.getElementById("create-form");
+  let kind = "room";
+
+  const open = (k) => {
+    kind = k;
+    const isZone = kind === "zone";
+    document.getElementById("create-title").textContent = isZone ? "Ny sone" : "Nytt rom";
+    document.getElementById("create-go").textContent = isZone ? "Lag sonen" : "Lag rommet";
+    document.getElementById("create-hint").textContent = isZone
+      ? "Velg lampene som skal være med. De blir også værende i rommene sine."
+      : "Velg lampene som skal være i rommet. De flyttes fra rommet de er i nå.";
+    document.getElementById("create-name").value = "";
+    archetypeOptions(document.getElementById("create-type"), isZone ? "home" : "living_room");
+    const items = isZone ? zoneCandidates(null) : roomCandidates(null);
+    document.getElementById("create-lights").replaceChildren(...items.map(pickItem));
+    dlg.showModal();
+    document.getElementById("create-name").focus();
+  };
+  for (const b of document.querySelectorAll("[data-create]")) b.addEventListener("click", () => open(b.dataset.create));
+  document.getElementById("create-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => e.target === dlg && dlg.close());
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = document.getElementById("create-name").value.trim();
+    if (!name) return;
+    const ids = checked(document.getElementById("create-lights"));
+    const metadata = { name, archetype: document.getElementById("create-type").value };
+    const go = document.getElementById("create-go");
+    go.disabled = true;
+    try {
+      if (kind === "room") {
+        await assignDevicesToRoom(ids, null); // ut av gamle rom først
+        await resource("POST", "room", null, { metadata, children: ids.map((rid) => ({ rid, rtype: "device" })) });
+      } else {
+        await resource("POST", "zone", null, { metadata, children: ids.map((rid) => ({ rid, rtype: "light" })) });
+      }
+      dlg.close();
+    } catch {
+    } finally {
+      go.disabled = false;
+    }
+  });
 }
 
 // ---------- Ringebanner ----------
@@ -695,20 +1138,28 @@ function scheduleRender() {
 
 // ---------- Kontakt med serveren ----------
 
-async function api(method, url, body) {
+/** Sender en kommando. Feil vises i hendelseslisten. Med strict kastes feilen videre i tillegg. */
+async function api(method, url, body, strict = false) {
   try {
     const res = await fetch(url, {
       method,
       headers: body ? { "Content-Type": "application/json" } : {},
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    return data;
   } catch (err) {
     console.error(err);
     eventItems.unshift({ time: new Date().toISOString(), text: `Kommandoen feilet: ${err.message}`, kind: "warn", isNew: true });
     scheduleRender();
+    if (strict) throw err;
+    return null;
   }
 }
+
+/** Kommando mot en ressurs på broen via serverens kontrollerte proxy. */
+const resource = (method, type, id, body) => api(method, `/api/resource/${type}${id ? `/${id}` : ""}`, body, true);
 
 function connect() {
   const es = new EventSource("/api/stream");

@@ -35,6 +35,7 @@
           <h2 id="rooms-h">Rom</h2>
           <span class="muted" id="rooms-count"></span>
           <div class="grow"></div>
+          <button type="button" class="small" data-create="room">+ Nytt rom</button>
           <div class="segmented" role="group" aria-label="Vis rom">
             <button type="button" data-filter="all" aria-pressed="true">Alle rom</button>
             <button type="button" data-filter="on" aria-pressed="false">Bare på</button>
@@ -44,6 +45,8 @@
 
         <div class="section-head zones-head" id="zones-head">
           <h2 id="zones-h">Soner</h2>
+          <div class="grow"></div>
+          <button type="button" class="small" data-create="zone">+ Ny sone</button>
         </div>
         <div class="room-grid" id="zones" aria-labelledby="zones-h"></div>
       </section>
@@ -85,15 +88,72 @@
         <span>Lysstyrke for hele <span id="detail-kind">rommet</span> <output id="detail-dim-out"></output></span>
         <input type="range" class="dim" id="detail-dim" min="1" max="100" step="1">
       </label>
+      <div class="group-color" id="detail-color-row">
+        <label class="field grow"><span>Hvittone for alle</span>
+          <input type="range" class="ct" id="detail-ct" min="153" max="500" step="1">
+        </label>
+        <label class="field"><span>Farge for alle</span>
+          <input type="color" class="color" id="detail-color">
+        </label>
+      </div>
       <section aria-labelledby="detail-scenes-h">
         <h3 id="detail-scenes-h" class="sub-h">Scener</h3>
         <div class="scenes" id="detail-scenes"></div>
+        <div class="row-actions">
+          <button type="button" class="small" id="scene-save">Lagre lyset nå som ny scene</button>
+        </div>
+        <details class="manage" id="scene-manage">
+          <summary>Rediger scener</summary>
+          <ul class="manage-list" id="scene-list"></ul>
+        </details>
       </section>
       <section aria-labelledby="detail-lights-h">
         <h3 id="detail-lights-h" class="sub-h">Lamper</h3>
         <ul class="light-list" id="detail-lights"></ul>
+        <details class="manage" id="add-lights">
+          <summary id="add-lights-summary">Legg til lamper</summary>
+          <p class="hint" id="add-lights-hint"></p>
+          <div class="pick-list" id="add-lights-list"></div>
+          <div class="row-actions">
+            <button type="button" class="primary" id="add-lights-go">Legg til valgte</button>
+          </div>
+        </details>
+      </section>
+      <section aria-labelledby="detail-settings-h">
+        <h3 id="detail-settings-h" class="sub-h">Innstillinger</h3>
+        <form class="settings" id="group-settings">
+          <label class="field"><span>Navn</span><input type="text" class="text-in" id="group-name" maxlength="32" required></label>
+          <label class="field" id="group-type-field"><span>Romtype</span><select class="text-in" id="group-type"></select></label>
+          <div class="row-actions">
+            <button type="submit" class="primary">Lagre</button>
+            <div class="grow"></div>
+            <button type="button" class="danger" id="group-delete">Slett</button>
+          </div>
+        </form>
       </section>
     </div>
+  </dialog>
+  <dialog id="create" aria-labelledby="create-title">
+    <form class="detail" id="create-form">
+      <header class="detail-head">
+        <h2 id="create-title">Nytt rom</h2>
+        <div class="grow"></div>
+        <button type="button" class="close" id="create-close" aria-label="Lukk">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+      <label class="field"><span>Navn</span><input type="text" class="text-in" id="create-name" maxlength="32" required></label>
+      <label class="field"><span>Type</span><select class="text-in" id="create-type"></select></label>
+      <div>
+        <h3 class="sub-h">Lamper</h3>
+        <p class="hint" id="create-hint"></p>
+        <div class="pick-list" id="create-lights"></div>
+      </div>
+      <div class="row-actions">
+        <div class="grow"></div>
+        <button type="submit" class="primary" id="create-go">Lag</button>
+      </div>
+    </form>
   </dialog>
   <script src="app.js" type="module"></script>
 </body>

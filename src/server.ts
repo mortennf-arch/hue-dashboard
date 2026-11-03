@@ -16,6 +16,22 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
 };
 
+const LIGHT_FIELDS = ["on", "dimming", "color", "color_temperature", "dynamics", "alert", "signaling"];
+const RESOURCE_RULES: Record<string, { methods: string[]; fields: string[] }> = {
+  light: {
+    methods: ["PUT"],
+    fields: [...LIGHT_FIELDS, "metadata", "effects", "effects_v2", "timed_effects", "powerup", "identify", "gradient"],
+  },
+  grouped_light: { methods: ["PUT"], fields: LIGHT_FIELDS },
+  device: { methods: ["PUT"], fields: ["metadata", "identify"] },
+  room: { methods: ["PUT", "POST", "DELETE"], fields: ["metadata", "children"] },
+  zone: { methods: ["PUT", "POST", "DELETE"], fields: ["metadata", "children"] },
+  scene: {
+    methods: ["PUT", "POST", "DELETE"],
+    fields: ["metadata", "group", "actions", "palette", "speed", "auto_dynamic", "recall"],
+  },
+};
+
 export interface WebServer {
   broadcastEvents(events: HueEvent[]): void;
   broadcastSnapshot(): void;
@@ -164,6 +180,31 @@ export async function startWebServer(opts: {
       const id = scene[1];
       if (store.get(id)?.type !== "scene") return json(res, 404, { error: "Fant ikke scenen" });
       await client.put("scene", id, { recall: { action: "active" } });
+      return json(res, 200, { ok: true });
+    }
+
+    // Generell tilgang til broens ressurser for det appen ellers gjør: rom, soner, scener, navn, effekter.
+    // Bare et lite sett typer og felter slipper gjennom.
+    const generic = url.pathname.match(/^\/api\/resource\/([a-z_]+)(?:\/([0-9a-f-]{36}))?$/);
+    if (generic && (req.method === "PUT" || req.method === "POST" || req.method === "DELETE")) {
+      const [, type, id] = generic;
+      const rule = RESOURCE_RULES[type];
+      const method = req.method;
+      if (!rule || !rule.methods.includes(method)) return json(res, 405, { error: "Ikke tillatt" });
+      if ((method === "POST") === Boolean(id)) return json(res, 400, { error: "Feil adresse" });
+      if (id && store.get(id)?.type !== type) return json(res, 404, { error: "Fant ikke ressursen" });
+      if (method === "DELETE") {
+        await client.remove(type, id!);
+        return json(res, 200, { ok: true });
+      }
+      const body = await readBody(req);
+      const keys = Object.keys(body);
+      const bad = keys.filter((k) => !rule.fields.includes(k));
+      if (!keys.length || bad.length) {
+        return json(res, 400, { error: `Felter som ikke er tillatt: ${bad.join(", ") || "(tomt)"}` });
+      }
+      if (method === "POST") return json(res, 201, { ok: true, created: await client.create(type, body) });
+      await client.put(type, id!, body);
       return json(res, 200, { ok: true });
     }
 
