@@ -36,7 +36,11 @@ class Throttle {
 
   submit(key: string, body: Record<string, unknown>, send: (b: unknown) => Promise<void>): void {
     const existing = this.pending.get(key);
-    this.pending.set(key, { body: { ...(existing?.body ?? {}), ...body }, send });
+    const merged: Record<string, unknown> = { ...(existing?.body ?? {}), ...body };
+    // Farge og hvittone utelukker hverandre: den siste som ble valgt, vinner.
+    if ("color" in body) delete merged.color_temperature;
+    if ("color_temperature" in body) delete merged.color;
+    this.pending.set(key, { body: merged, send });
     if (this.timers.has(key)) return;
     const wait = Math.max(0, (this.lastSent.get(key) ?? 0) + this.intervalMs - Date.now());
     this.timers.set(
@@ -114,6 +118,14 @@ export async function startWebServer(opts: {
       cmd.dimming = { brightness: Math.min(100, Math.max(1, Math.round(body.brightness))) };
       if (body.on === undefined) cmd.on = { on: true };
     }
+    const xy = body.xy as { x?: unknown; y?: unknown } | undefined;
+    if (xy && typeof xy.x === "number" && typeof xy.y === "number" && xy.x >= 0 && xy.x <= 1 && xy.y > 0 && xy.y <= 1) {
+      cmd.color = { xy: { x: Number(xy.x.toFixed(4)), y: Number(xy.y.toFixed(4)) } };
+      if (body.on === undefined) cmd.on = { on: true };
+    } else if (typeof body.mirek === "number" && Number.isFinite(body.mirek)) {
+      cmd.color_temperature = { mirek: Math.min(500, Math.max(153, Math.round(body.mirek))) };
+      if (body.on === undefined) cmd.on = { on: true };
+    }
     return Object.keys(cmd).length ? cmd : null;
   };
 
@@ -141,7 +153,7 @@ export async function startWebServer(opts: {
       const [, type, id] = control;
       if (store.get(id)?.type !== type) return json(res, 404, { error: "Fant ikke ressursen" });
       const cmd = lightCommand(await readBody(req));
-      if (!cmd) return json(res, 400, { error: "Send on (true/false) og/eller brightness (1–100)" });
+      if (!cmd) return json(res, 400, { error: "Send on (true/false), brightness (1–100), xy ({x, y}) eller mirek (153–500)" });
       const throttle = type === "grouped_light" ? groupThrottle : lightThrottle;
       throttle.submit(`${type}/${id}`, cmd, (b) => client.put(type, id, b));
       return json(res, 202, { ok: true });
