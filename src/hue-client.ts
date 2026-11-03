@@ -182,6 +182,21 @@ export class HueClient {
     return res.data;
   }
 
+  /** Endrer en ressurs, f.eks. PUT /clip/v2/resource/grouped_light/<id> med {"on":{"on":true}}. */
+  async put(type: string, id: string, body: unknown): Promise<void> {
+    const res = await bridgeRequest<ClipResponse<unknown>>({
+      ip: this.config.bridgeIp,
+      agent: this.agent,
+      method: "PUT",
+      path: `/clip/v2/resource/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
+      appKey: this.config.appKey,
+      body,
+    });
+    if (res?.errors?.length) {
+      throw new Error(res.errors.map((e) => e.description).join(", "));
+    }
+  }
+
   /**
    * Lytter på /eventstream/clip/v2 og kobler til igjen ved brudd.
    * onConnected kalles hver gang strømmen (gjen)opprettes, slik at kalleren kan hente full tilstand.

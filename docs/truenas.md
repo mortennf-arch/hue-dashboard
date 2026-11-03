@@ -60,9 +60,15 @@ Imaget inneholder bare koden, som allerede ligger åpent på GitHub. API-nøkkel
 
 Nøkkelen lagres i datasettet, så du trenger bare å gjøre dette én gang.
 
-## 7. Se at det virker
+## 7. Åpne dashbordet
 
-La loggen stå åpen og:
+Gå til `http://<truenas-ip>:8095` i nettleseren, for eksempel `http://192.168.1.10:8095`. Det virker også på mobil og nettbrett på samme Wi-Fi. Legg det gjerne til på startskjermen.
+
+Er port 8095 allerede i bruk av en annen app, endrer du den første `8095` i `ports`-linjen til en ledig port.
+
+## 8. Se at det virker
+
+La loggen eller dashbordet stå åpent og:
 
 - skru et lys av og på i Hue-appen
 - trykk på en bryter
@@ -72,7 +78,9 @@ Hver handling skal gi en linje i loggen. Hendelsene lagres også i `events.jsonl
 
 ## Oppdatere
 
-Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et par minutter. I TrueNAS går du til **Apps > hue-dashboard > Edit** og trykker **Save** uten å endre noe. Med `pull_policy: always` henter den da nyeste image. Vi bekrefter sammen at dette fungerer første gang.
+Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et par minutter. I TrueNAS går du til **Apps > hue-dashboard > Edit** og trykker **Save**. Med `pull_policy: always` henter den da nyeste image.
+
+Har [deploy/truenas-compose.yaml](../deploy/truenas-compose.yaml) fått nye linjer (for eksempel `ports` da dashbordet kom), legger du dem inn i YAML-en under **Edit** før du lagrer. Behold dine egne verdier for IP og sti.
 
 ## Feilsøking
 
@@ -82,3 +90,4 @@ Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et p
 | `Sertifikatet til broen har endret seg` | Har du byttet bro? Slett `config.json` i datasettet og start appen på nytt |
 | `EACCES` eller `permission denied` på `/data` | Datasettet mangler Apps-preset. Gi brukeren `apps` skrivetilgang under **Edit Permissions** |
 | Appen får ikke hentet imaget | Sjekk at pakken er offentlig (steg 4) |
+| Dashbordet åpner seg ikke | Sjekk at `ports` står i YAML-en, og at loggen sier `Dashbordet kjører på ...` |

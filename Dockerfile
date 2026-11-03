@@ -11,11 +11,14 @@ WORKDIR /app
 ENV NODE_ENV=production \
     DATA_DIR=/data \
     PAIR_TIMEOUT_S=0 \
+    PORT=8095 \
     TZ=Europe/Oslo
 COPY package.json ./
 COPY --from=build /app/dist ./dist
+COPY public ./public
 # TrueNAS kjører appen som brukeren "apps" (568). Mappen /data kobles til et dataset.
 RUN mkdir -p /data && chown 568:568 /data
 VOLUME ["/data"]
+EXPOSE 8095
 USER 568:568
 CMD ["node", "dist/main.js"]

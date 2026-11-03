@@ -1,63 +1,9 @@
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataDir, type BridgeConfig } from "./config.js";
-import { HueClient, type HueEvent, type HueResource } from "./hue-client.js";
-
-/** Holder full tilstand i minnet og fletter inn endringer fra eventstream. */
-export class ResourceStore {
-  private readonly byId = new Map<string, HueResource>();
-
-  replaceAll(resources: HueResource[]): void {
-    this.byId.clear();
-    for (const r of resources) this.byId.set(r.id, r);
-  }
-
-  apply(event: HueEvent): void {
-    for (const r of event.data) {
-      if (event.type === "delete") {
-        this.byId.delete(r.id);
-      } else if (event.type === "add" || !this.byId.has(r.id)) {
-        this.byId.set(r.id, r);
-      } else {
-        deepMerge(this.byId.get(r.id)!, r);
-      }
-    }
-  }
-
-  get(id: string): HueResource | undefined {
-    return this.byId.get(id);
-  }
-
-  all(): HueResource[] {
-    return [...this.byId.values()];
-  }
-
-  /** Et lesbart navn: ressursens eget navn, ellers navnet på enheten eller rommet som eier den. */
-  label(r: HueResource): string {
-    const own = r.metadata?.name;
-    if (own) return own;
-    const stored = this.byId.get(r.id);
-    if (stored?.metadata?.name) return stored.metadata.name;
-    const owner = (r.owner ?? stored?.owner) as HueResource["owner"];
-    const ownerRes = owner ? this.byId.get(owner.rid) : undefined;
-    const ownerName = ownerRes?.metadata?.name;
-    const controlId = stored?.metadata?.control_id ?? r.metadata?.control_id;
-    if (ownerName && controlId !== undefined) return `${ownerName}, knapp ${controlId}`;
-    if (ownerName) return ownerName;
-    return r.id.slice(0, 8);
-  }
-}
-
-function deepMerge(target: Record<string, unknown>, src: Record<string, unknown>): void {
-  for (const [k, v] of Object.entries(src)) {
-    const t = target[k];
-    if (v && typeof v === "object" && !Array.isArray(v) && t && typeof t === "object" && !Array.isArray(t)) {
-      deepMerge(t as Record<string, unknown>, v as Record<string, unknown>);
-    } else {
-      target[k] = v;
-    }
-  }
-}
+import { HueClient, type HueResource } from "./hue-client.js";
+import { ResourceStore } from "./store.js";
+import { startWebServer, type WebServer } from "./server.js";
 
 const SKIP_KEYS = new Set(["id", "id_v1", "type", "owner", "service_id"]);
 
@@ -108,8 +54,22 @@ function printSummary(store: ResourceStore, cfg: BridgeConfig): void {
   console.log("");
 }
 
-/** Kobler til, viser full tilstand og skriver ut alle hendelser live til du trykker Ctrl+C. */
-export async function watch(cfg: BridgeConfig): Promise<void> {
+const MAX_LOG_BYTES = 20 * 1024 * 1024;
+
+/** Flytter events.jsonl til events.1.jsonl når den blir for stor, slik at disken ikke fylles opp. */
+async function rotateIfLarge(file: string): Promise<void> {
+  try {
+    if ((await stat(file)).size > MAX_LOG_BYTES) await rename(file, file.replace(/\.jsonl$/, ".1.jsonl"));
+  } catch {
+    // Filen finnes ikke ennå.
+  }
+}
+
+/**
+ * Kobler til, viser full tilstand og skriver ut alle hendelser live til du trykker Ctrl+C.
+ * Med web.port startes også dashbordet, som får tilstand og hendelser live.
+ */
+export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } = {}): Promise<void> {
   const client = new HueClient(cfg);
   const store = new ResourceStore();
   await mkdir(dataDir, { recursive: true });
@@ -128,22 +88,34 @@ export async function watch(cfg: BridgeConfig): Promise<void> {
   };
 
   await refresh(true);
+  await rotateIfLarge(eventLog);
+  let web: WebServer | null = null;
+  if (opts.web) {
+    web = await startWebServer({ port: opts.web.port, client, store });
+    console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
+  }
   console.log("Lytter på hendelser. Skru på et lys, trykk på en bryter eller ring på døra. Ctrl+C avslutter.");
   console.log("");
 
   let connectedOnce = false;
+  let eventCount = 0;
   const stop = client.listen({
     onConnected: () => {
       if (connectedOnce) {
         console.log(`${time()}  Koblet til igjen, henter full tilstand ...`);
-        refresh(false).catch((err) => console.error("Klarte ikke å hente tilstand:", err.message));
+        refresh(false)
+          .then(() => web?.broadcastSnapshot())
+          .catch((err) => console.error("Klarte ikke å hente tilstand:", err.message));
       }
       connectedOnce = true;
+      web?.setBridgeStatus(true);
     },
     onDisconnected: (reason, retryInMs) => {
       console.log(`${time()}  Mistet forbindelsen (${reason}). Prøver igjen om ${retryInMs / 1000} s.`);
+      web?.setBridgeStatus(false, reason);
     },
     onEvents: (events) => {
+      if (++eventCount % 500 === 0) rotateIfLarge(eventLog).catch(() => {});
       for (const ev of events) {
         appendFile(eventLog, JSON.stringify(ev) + "\n").catch(() => {});
         for (const r of ev.data) {
@@ -155,12 +127,14 @@ export async function watch(cfg: BridgeConfig): Promise<void> {
         }
         store.apply(ev);
       }
+      web?.broadcastEvents(events);
     },
   });
 
   await new Promise<void>((resolve) => {
     const shutdown = () => {
       stop();
+      web?.close();
       client.close();
       resolve();
     };

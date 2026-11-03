@@ -3,14 +3,15 @@ import { pair } from "./pair.js";
 import { watch } from "./watch.js";
 
 const USAGE = `Bruk:
-  npm run dev          Parer hvis nødvendig, og viser hendelser live
+  npm run dev          Parer hvis nødvendig, starter dashbordet og viser hendelser live
   npm run pair         Parer med broen på nytt (trykk på knappen når du blir bedt om det)
-  npm run watch        Viser tilstand og hendelser live (krever at broen er paret)
+  npm run watch        Viser bare tilstand og hendelser i terminalen, uten dashbord
 
 Valg:
   --ip <adresse>       Bruk denne IP-adressen til broen i stedet for å lete
 Miljøvariabler:
   HUE_BRIDGE_IP        Samme som --ip
+  PORT                 Porten dashbordet svarer på (standard: 8095)
   DATA_DIR             Hvor config.json og logger lagres (standard: ./data)
   PAIR_TIMEOUT_S       Hvor lenge paringen venter på knappetrykk. 0 = for alltid (standard: 60)`;
 
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
     }
     case "run": {
       const cfg = (await loadConfig()) ?? (await pair({ ip, timeoutMs }));
-      await watch(cfg);
+      await watch(cfg, { web: { port: Number(process.env.PORT ?? 8095) } });
       return;
     }
     case "help":
