@@ -6,6 +6,8 @@ services:
     pull_policy: always
     restart: unless-stopped
     user: "568:568"
+    ports:
+      - "8095:8095"   # dashbordet: http://<truenas-ip>:8095
     environment:
       TZ: Europe/Oslo
       HUE_BRIDGE_IP: "192.168.1.50"   # ENDRE: broens faste IP-adresse

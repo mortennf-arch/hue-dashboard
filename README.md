@@ -2,7 +2,7 @@
 
 Et lokalt dashbord for Philips Hue. En liten Node.js-server snakker med Hue-broen over hjemmenettet og viser alt som skjer, uten å gå via skyen.
 
-Prosjektet bygges i faser. Nå er **fase 1** på plass: koble til broen, hente API-nøkkel og se alle hendelser live.
+Prosjektet bygges i faser. Nå er **fase 2** på plass: et dashbord i nettleseren med alle rom, lys og scener, live-hendelser, dørklokkevarsel, sikkerhet og batteristatus. Det åpnes på `http://<maskinen>:8095`, også fra mobil på samme Wi-Fi.
 
 ## Kjør på TrueNAS (anbefalt)
 
@@ -20,13 +20,23 @@ Serveren skal til slutt kjøre som en Docker-app på TrueNAS SCALE. Følg [docs/
    ```
 
 4. Trykk på knappen på broen når du blir bedt om det.
+5. Åpne [http://localhost:8095](http://localhost:8095).
 
 Finner den ikke broen, kan du oppgi IP-adressen selv: `npm run dev -- --ip 192.168.1.50`.
 
 ## Hva du ser
 
-- En oversikt over alle ressurstyper og enheter broen kjenner til.
-- Hver endring live, for eksempel `update  light  Stue taklampe  on.on=false`.
+I dashbordet:
+
+- **Rom**: av/på, lysstyrke og scener for hvert rom, med fargen lysene har nå. «Alt av» skrur av hele huset.
+- **Dørklokke**: et banner når det ringer på, med status fra kameraet. Det blir borte etter 30 minutter eller når du lukker det.
+- **Sikkerhet**: dørklokke, kamerabevegelse, ringeklokka inne og eventuelle dør- og vindussensorer.
+- **Hendelser**: de siste 100 hendelsene i klartekst.
+- **Helse**: lave batterier og enheter som ikke svarer.
+
+I loggen (terminalen eller TrueNAS) ser du i tillegg hver rå endring, for eksempel `update  light  Stue taklampe  on.on=false`.
+
+Dashbordet har ingen innlogging, så alle på hjemmenettet kan bruke det. Ikke åpne porten mot internett.
 
 Alt lagres i mappen `data/` (eller `/data` i Docker):
 

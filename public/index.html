@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Hjemme · Hue-dashbord</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='%23F5B544'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="page">
+    <header class="top">
+      <h1>Hjemme</h1>
+      <span class="muted" id="clock"></span>
+      <div class="grow"></div>
+      <span class="chip" id="bridge-status"><span class="dot"></span><span>Kobler til …</span></span>
+      <span class="chip" id="lights-on"></span>
+      <button type="button" class="primary" id="all-off">Alt av</button>
+    </header>
+
+    <section class="bell" id="bell" aria-live="assertive" hidden>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+      <div class="bell-text">
+        <strong id="bell-title"></strong>
+        <span id="bell-detail"></span>
+      </div>
+      <div class="grow"></div>
+      <button type="button" class="ghost" id="bell-close">Lukk</button>
+    </section>
+
+    <div class="layout">
+      <section aria-labelledby="rooms-h" class="rooms">
+        <div class="section-head">
+          <h2 id="rooms-h">Rom</h2>
+          <span class="muted" id="rooms-count"></span>
+          <div class="grow"></div>
+          <div class="segmented" role="group" aria-label="Vis rom">
+            <button type="button" data-filter="all" aria-pressed="true">Alle rom</button>
+            <button type="button" data-filter="on" aria-pressed="false">Bare på</button>
+          </div>
+        </div>
+        <div class="room-grid" id="rooms"></div>
+      </section>
+
+      <aside class="side">
+        <section class="card" aria-labelledby="sec-h">
+          <h2 id="sec-h">Sikkerhet</h2>
+          <div class="tiles" id="security"></div>
+        </section>
+
+        <section class="card events" aria-labelledby="ev-h">
+          <div class="section-head">
+            <h2 id="ev-h">Hendelser</h2>
+            <div class="grow"></div>
+            <span class="live" id="live"><span class="dot"></span>Live</span>
+          </div>
+          <ol class="event-list" id="events"></ol>
+        </section>
+
+        <section class="card" aria-labelledby="health-h">
+          <h2 id="health-h">Helse</h2>
+          <div id="health"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
