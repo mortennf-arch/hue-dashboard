@@ -229,6 +229,48 @@ export function playsDirect(uri: string): boolean {
   return /^x-sonosapi-(stream|radio|hls|hls-static)|^x-rincon-mp3radio|^aac:|^hls-radio|^x-sonos-htastream/.test(uri);
 }
 
+export interface SpotifyAccount {
+  sid: string;
+  sn: string;
+  /** Kontoens nøkkel i Sonos, f.eks. SA_RINCON3079_X_#Svc3079-0-Token. */
+  desc: string;
+}
+
+/** Finner Spotify-kontoen Sonos bruker, ut fra en Spotify-favoritt. */
+export function spotifyAccountFrom(favs: { uri: string; meta: string }[]): SpotifyAccount | null {
+  for (const f of favs) {
+    if (!/spotify/i.test(f.uri)) continue;
+    const sid = f.uri.match(/[?&]sid=(\d+)/)?.[1];
+    const sn = f.uri.match(/[?&]sn=(\d+)/)?.[1];
+    if (!sid || !sn) continue;
+    const desc = tag(f.meta, "desc") || `SA_RINCON${Number(sid) * 256 + 7}_X_#Svc${Number(sid) * 256 + 7}-0-Token`;
+    return { sid, sn, desc };
+  }
+  return null;
+}
+
+/** Bygger Sonos-adresse og metadata for noe fra Spotify, slik Sonos-appen gjør. */
+export function spotifyItem(type: "track" | "album" | "playlist" | "artist", id: string, title: string, acc: SpotifyAccount) {
+  const kinds = {
+    track: { prefix: "00032020", key: "track", cls: "object.item.audioItem.musicTrack" },
+    album: { prefix: "1004206c", key: "album", cls: "object.container.album.musicAlbum" },
+    playlist: { prefix: "1006206c", key: "playlist", cls: "object.container.playlistContainer" },
+    artist: { prefix: "100c206c", key: "artistRadio", cls: "object.item.audioItem.audioBroadcast.#artistRadio" },
+  } as const;
+  const k = kinds[type];
+  const enc = `spotify%3a${k.key}%3a${id}`;
+  const q = `sid=${acc.sid}&flags=${type === "track" ? 8224 : 8300}&sn=${acc.sn}`;
+  const uri =
+    type === "track" ? `x-sonos-spotify:${enc}?${q}` : type === "artist" ? `x-sonosapi-radio:${enc}?${q}` : `x-rincon-cpcontainer:${k.prefix}${enc}?${q}`;
+  const meta =
+    `<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" ` +
+    `xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">` +
+    `<item id="${k.prefix}${enc}" parentID="" restricted="true"><dc:title>${escapeXml(title)}</dc:title>` +
+    `<upnp:class>${k.cls}</upnp:class><desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${escapeXml(acc.desc)}</desc>` +
+    `</item></DIDL-Lite>`;
+  return { uri, meta };
+}
+
 // ---------- Kommunikasjon ----------
 
 async function soap(host: string, service: Service, action: string, args: Record<string, string | number> = {}): Promise<string> {
@@ -528,15 +570,35 @@ export class SonosManager {
     if (!this.favorites.some((f) => f.id === favoriteId)) await this.loadFavorites();
     const fav = this.favorites.find((f) => f.id === favoriteId);
     if (!fav) throw new Error("Fant ikke favoritten");
+    await this.playUri(g, fav.uri, fav.meta);
+  }
+
+  /** Spiller noe fra Spotify-søket, via Spotify-kontoen som er koblet til Sonos. */
+  async playSpotify(groupId: string, type: "track" | "album" | "playlist" | "artist", id: string, title: string): Promise<void> {
+    const g = this.group(groupId);
+    if (!g) throw new Error("Fant ikke rommet");
+    let acc = spotifyAccountFrom(this.favorites);
+    if (!acc) {
+      await this.loadFavorites();
+      acc = spotifyAccountFrom(this.favorites);
+    }
+    if (!acc) {
+      throw new Error("Fant ikke Spotify-kontoen i Sonos. Legg til en Spotify-spilleliste som favoritt i Sonos-appen først.");
+    }
+    const item = spotifyItem(type, id, title, acc);
+    await this.playUri(g, item.uri, item.meta);
+  }
+
+  private async playUri(g: SonosGroup, uri: string, meta: string): Promise<void> {
     const host = this.coordinatorHost(g);
-    if (playsDirect(fav.uri)) {
-      await soap(host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: fav.uri, CurrentURIMetaData: fav.meta });
+    if (playsDirect(uri)) {
+      await soap(host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: uri, CurrentURIMetaData: meta });
     } else {
       await soap(host, "AVTransport", "RemoveAllTracksFromQueue", { InstanceID: 0 });
       await soap(host, "AVTransport", "AddURIToQueue", {
         InstanceID: 0,
-        EnqueuedURI: fav.uri,
-        EnqueuedURIMetaData: fav.meta,
+        EnqueuedURI: uri,
+        EnqueuedURIMetaData: meta,
         DesiredFirstTrackNumberEnqueued: 0,
         EnqueueAsNext: 0,
       });

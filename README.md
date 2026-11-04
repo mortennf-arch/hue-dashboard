@@ -39,7 +39,7 @@ I dashbordet er alt delt i tre faner: **Lys**, **Musikk** og **Sikkerhet**. Hver
 - **Sikkerhet**: dørklokke, kamerabevegelse, ringeklokka inne og eventuelle dør- og vindussensorer.
 - **Hendelser**: de siste 100 hendelsene i klartekst.
 - **Helse**: lave batterier og enheter som ikke svarer.
-- **Musikk (Sonos)**: hva som spilles i hvert rom eller hver gruppe, med albumcover, spill/pause, forrige/neste, volum og demping, og volum per rom når flere rom spiller sammen. «Velg musikk» spiller Sonos-favorittene dine (spillelister, album og radio du har trykket hjerte på i Sonos-appen), og «Rom i gruppen» slår rom sammen eller fra hverandre med ett trykk, eller lar hele huset spille det samme. Krever `SONOS_IP`, se [docs/truenas.md](docs/truenas.md#sonos-valgfritt).
+- **Musikk (Sonos)**: hva som spilles i hvert rom eller hver gruppe, med albumcover, spill/pause, forrige/neste, volum og demping, og volum per rom når flere rom spiller sammen. «Velg musikk» spiller Sonos-favorittene dine (spillelister, album og radio du har trykket hjerte på i Sonos-appen), og «Rom i gruppen» slår rom sammen eller fra hverandre med ett trykk, eller lar hele huset spille det samme. Med Spotify-nøkler kan du også søke i Spotify der og spille låter, album, spillelister og artistradio. Krever `SONOS_IP`, se [docs/truenas.md](docs/truenas.md#sonos-valgfritt).
 
 Alt du endrer lagres i broen, så det vises også i Hue-appen. Sletting spør alltid først.
 

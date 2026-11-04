@@ -5,6 +5,7 @@ import { HueClient, type HueResource } from "./hue-client.js";
 import { ResourceStore } from "./store.js";
 import { startWebServer, type WebServer } from "./server.js";
 import { SonosManager } from "./sonos.js";
+import { SpotifyClient } from "./spotify.js";
 
 const SKIP_KEYS = new Set(["id", "id_v1", "type", "owner", "service_id"]);
 
@@ -104,7 +105,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
     });
   }
   if (opts.web) {
-    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined });
+    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient() });
     console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
     sonos?.start().catch((err) => console.error("Sonos:", err.message));
   }

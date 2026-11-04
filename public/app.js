@@ -1120,6 +1120,7 @@ function renderBell(ringingNow = false) {
 
 // ---------- Sonos ----------
 
+let spotifyOn = false;
 let sonos = null; // { available, reason, groups: [...] } fra serveren, eller null når Sonos er slått av
 const sonosEls = new Map(); // gruppe-id -> { el, refs }
 
@@ -1299,7 +1300,87 @@ const groupOf = (coordinator) => sonos?.groups.find((g) => g.coordinator === coo
 function openFavorites(coordinator) {
   favFor = coordinator;
   renderFavorites();
+  const box = document.getElementById("spotify-box");
+  box.hidden = !spotifyOn;
+  document.getElementById("sonos-fav-head").hidden = !spotifyOn;
   document.getElementById("sonos-fav").showModal();
+  if (spotifyOn) document.getElementById("spotify-q").focus();
+}
+
+/** Lager en knapp med bilde for en favoritt eller et søketreff. */
+function musicTile(title, sub, artUrl, play) {
+  const art = h("div", { class: "fav-art", "aria-hidden": "true" });
+  if (artUrl) {
+    const img = h("img", { src: artUrl, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+    img.addEventListener("error", () => img.remove());
+    art.append(img);
+  }
+  const btn = h(
+    "button",
+    {
+      type: "button",
+      class: "fav",
+      onclick: async () => {
+        const grp = groupOf(favFor);
+        if (!grp) return;
+        btn.disabled = true;
+        const ok = await play(grp);
+        btn.disabled = false;
+        if (ok) document.getElementById("sonos-fav").close();
+      },
+    },
+    art,
+    h("strong", {}, title),
+    h("span", {}, sub),
+  );
+  return btn;
+}
+
+let searchSeq = 0;
+async function runSpotifySearch(q) {
+  const seq = ++searchSeq;
+  const hint = document.getElementById("spotify-hint");
+  const list = document.getElementById("spotify-results");
+  if (!q.trim()) {
+    hint.hidden = true;
+    list.replaceChildren();
+    return;
+  }
+  hint.hidden = false;
+  hint.textContent = "Søker …";
+  try {
+    const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json().catch(() => ({}));
+    if (seq !== searchSeq) return; // et nyere søk er på vei
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    const hits = data.results ?? [];
+    hint.textContent = hits.length ? "" : "Fant ingenting. Prøv et annet ord.";
+    hint.hidden = Boolean(hits.length);
+    list.replaceChildren(
+      ...hits.map((r) =>
+        musicTile(r.title, r.subtitle, r.art, (grp) =>
+          api("POST", sonosUrl("group", grp.id, "spotify"), { type: r.type, id: r.id, title: r.title }),
+        ),
+      ),
+    );
+  } catch (err) {
+    if (seq !== searchSeq) return;
+    hint.textContent = `Søket feilet: ${err.message}`;
+  }
+}
+
+{
+  const input = document.getElementById("spotify-q");
+  let timer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => runSpotifySearch(input.value), 350);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    clearTimeout(timer);
+    runSpotifySearch(input.value);
+  });
 }
 
 function renderFavorites() {
@@ -1316,33 +1397,7 @@ function renderFavorites() {
   if (list.dataset.key === JSON.stringify(favs)) return;
   list.dataset.key = JSON.stringify(favs);
   list.replaceChildren(
-    ...favs.map((f) => {
-      const art = h("div", { class: "fav-art", "aria-hidden": "true" });
-      if (f.art) {
-        const img = h("img", { src: f.art, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
-        img.addEventListener("error", () => img.remove());
-        art.append(img);
-      }
-      const btn = h(
-        "button",
-        {
-          type: "button",
-          class: "fav",
-          onclick: async () => {
-            const grp = groupOf(favFor);
-            if (!grp) return;
-            btn.disabled = true;
-            const ok = await api("POST", sonosUrl("group", grp.id, "favorite"), { favoriteId: f.id });
-            btn.disabled = false;
-            if (ok) dlg.close();
-          },
-        },
-        art,
-        h("strong", {}, f.title),
-        h("span", {}, f.kind),
-      );
-      return btn;
-    }),
+    ...favs.map((f) => musicTile(f.title, f.kind, f.art, (grp) => api("POST", sonosUrl("group", grp.id, "favorite"), { favoriteId: f.id }))),
   );
 }
 
@@ -1561,6 +1616,7 @@ function connect() {
     for (const r of snap.resources) byId.set(r.id, r);
     bridge = snap.bridge;
     sonos = snap.sonos ?? null;
+    spotifyOn = Boolean(snap.spotify);
     eventItems.length = 0;
     addEvents(snap.recent ?? [], false);
     scheduleRender();

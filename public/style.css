@@ -266,3 +266,6 @@ details.more > summary { margin-top: 0; font-size: 12px; }
 .room-pick[aria-pressed="true"] { background: var(--warn-bg); border: 2px solid var(--accent); }
 .room-pick[aria-pressed="true"] span { color: var(--bell-text); }
 .room-pick:disabled { cursor: default; }
+
+.search { display: flex; flex-direction: column; gap: 10px; }
+.search-in { font-size: 17px; min-height: 52px; padding: 10px 14px; }

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { HueClient, HueEvent } from "./hue-client.js";
 import type { ResourceStore } from "./store.js";
 import type { SonosManager, SonosState } from "./sonos.js";
+import type { SpotifyClient } from "./spotify.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -84,8 +85,9 @@ export async function startWebServer(opts: {
   client: HueClient;
   store: ResourceStore;
   sonos?: SonosManager;
+  spotify?: SpotifyClient;
 }): Promise<WebServer> {
-  const { client, store, sonos } = opts;
+  const { client, store, sonos, spotify } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
@@ -93,7 +95,7 @@ export async function startWebServer(opts: {
   let bridge = { connected: true, reason: "" };
   // De siste hendelsene, slik at et nyåpnet dashbord har noe i loggen med en gang.
   const recent: HueEvent[] = [];
-  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null });
+  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured) });
 
   const send = (res: http.ServerResponse, event: string, data: unknown) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -212,6 +214,11 @@ export async function startWebServer(opts: {
       return json(res, 200, { ok: true });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/spotify/search") {
+      if (!spotify?.configured) return json(res, 404, { error: "Spotify er ikke satt opp" });
+      return json(res, 200, { results: await spotify.search(url.searchParams.get("q") ?? "") });
+    }
+
     // Sonos: avspilling for et rom (en gruppe) og volum for gruppen eller én høyttaler.
     const sonosCmd = url.pathname.match(/^\/api\/sonos\/(group|player)\/([^/]+)\/([a-z]+)$/);
     if (sonosCmd) {
@@ -224,6 +231,17 @@ export async function startWebServer(opts: {
         const body = await readBody(req);
         if (typeof body.favoriteId !== "string" || body.favoriteId.length > 200) return json(res, 400, { error: "Send favoriteId" });
         await sonos.playFavorite(id, body.favoriteId);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "group" && action === "spotify") {
+        const body = await readBody(req);
+        const types = ["track", "album", "playlist", "artist"] as const;
+        const type = types.find((t) => t === body.type);
+        if (!type || typeof body.id !== "string" || !/^[A-Za-z0-9]{10,40}$/.test(body.id)) {
+          return json(res, 400, { error: "Send type (track, album, playlist, artist) og id" });
+        }
+        const title = typeof body.title === "string" ? body.title.slice(0, 200) : "Spotify";
+        await sonos.playSpotify(id, type, body.id, title);
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && kind === "group" && action === "all") {
