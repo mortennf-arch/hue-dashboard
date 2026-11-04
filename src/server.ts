@@ -16,6 +16,8 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
+  ".png": "image/png",
 };
 
 const LIGHT_FIELDS = ["on", "dimming", "color", "color_temperature", "dynamics", "alert", "signaling"];

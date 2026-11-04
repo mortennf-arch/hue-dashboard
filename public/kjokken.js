@@ -825,6 +825,18 @@ function connect() {
   });
 }
 
+// Fullskjerm. Chrome tar bare hensyn til «display: fullscreen» i manifestet når siden går over https,
+// så på hjemmenettet bes det om fullskjerm ved første trykk i stedet. Det tas igjen etter omlasting.
+document.addEventListener(
+  "pointerup",
+  () => {
+    if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+    if (window.matchMedia("(display-mode: fullscreen)").matches) return;
+    document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+  },
+  { passive: true },
+);
+
 connect();
 // Teksten om dørklokka skifter ved midnatt, og «Kobles til …» går ut på tid.
 setInterval(render, 30_000);
