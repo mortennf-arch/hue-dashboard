@@ -219,6 +219,16 @@ export async function startWebServer(opts: {
       return json(res, 200, { results: await spotify.search(url.searchParams.get("q") ?? "") });
     }
 
+    const accountName = url.pathname.match(/^\/api\/sonos\/spotify-account\/(\d{1,6})$/);
+    if (req.method === "PUT" && accountName) {
+      if (!sonos) return json(res, 404, { error: "Sonos er ikke satt opp" });
+      if (!sonos.hasSpotifyAccount(accountName[1])) return json(res, 404, { error: "Fant ikke kontoen" });
+      const body = await readBody(req);
+      if (typeof body.name !== "string") return json(res, 400, { error: "Send name" });
+      await sonos.nameSpotifyAccount(accountName[1], body.name);
+      return json(res, 200, { ok: true });
+    }
+
     // Sonos: avspilling for et rom (en gruppe) og volum for gruppen eller én høyttaler.
     const sonosCmd = url.pathname.match(/^\/api\/sonos\/(group|player)\/([^/]+)\/([a-z]+)$/);
     if (sonosCmd) {
@@ -241,7 +251,8 @@ export async function startWebServer(opts: {
           return json(res, 400, { error: "Send type (track, album, playlist, artist) og id" });
         }
         const title = typeof body.title === "string" ? body.title.slice(0, 200) : "Spotify";
-        await sonos.playSpotify(id, type, body.id, title);
+        const sn = typeof body.account === "string" && /^\d{1,6}$/.test(body.account) ? body.account : undefined;
+        await sonos.playSpotify(id, type, body.id, title, sn);
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && kind === "group" && action === "all") {

@@ -110,6 +110,8 @@ Med Spotify-nøkler kan du søke etter artister, låter, album og spillelister i
 
 Nøklene brukes bare til å søke. Musikken spilles gjennom Spotify-kontoen som er koblet til Sonos, og appen finner den ut fra en Spotify-favoritt. Ha derfor minst én Spotify-spilleliste som favoritt i Sonos-appen. Spotify krever at den som eier nøklene har Premium.
 
+Har dere flere Spotify-kontoer i Sonos, for eksempel én hver, dukker et valg «Spill fra» opp over søkefeltet. Hver konto blir med når den har minst én favoritt i Sonos. Trykk «Gi navn» for å kalle kontoene for eksempel «Morten» og «Kari». Navnene lagres i `sonos.json`, og hver skjerm husker hvilken konto som sist ble valgt.
+
 ## Oppdatere
 
 Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et par minutter. I TrueNAS går du til **Apps > hue-dashboard > Edit** og trykker **Save**. Med `pull_policy: always` henter den da nyeste image.

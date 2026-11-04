@@ -269,3 +269,6 @@ details.more > summary { margin-top: 0; font-size: 12px; }
 
 .search { display: flex; flex-direction: column; gap: 10px; }
 .search-in { font-size: 17px; min-height: 52px; padding: 10px 14px; }
+.accounts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.accounts-label { font-size: 13px; color: var(--muted); }
+.accounts .segmented button { min-height: 44px; font-size: 15px; padding: 8px 16px; }

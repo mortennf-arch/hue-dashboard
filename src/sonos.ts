@@ -64,6 +64,8 @@ export interface SonosState {
   reason: string;
   groups: SonosGroup[];
   favorites: SonosFavorite[];
+  /** Spotify-kontoene Sonos kjenner, funnet ut fra favorittene. Tom når det ikke er noen. */
+  spotifyAccounts: { sn: string; name: string; example: string }[];
   updatedAt: string;
 }
 
@@ -236,17 +238,25 @@ export interface SpotifyAccount {
   desc: string;
 }
 
-/** Finner Spotify-kontoen Sonos bruker, ut fra en Spotify-favoritt. */
-export function spotifyAccountFrom(favs: { uri: string; meta: string }[]): SpotifyAccount | null {
+/**
+ * Finner Spotify-kontoene Sonos bruker, ut fra Spotify-favorittene. Hver konto har sitt eget «sn»
+ * (kontonummer i Sonos), så to personer med hver sin Spotify-konto gir to treff.
+ */
+export function spotifyAccountsFrom(favs: { uri: string; meta: string; title?: string }[]): (SpotifyAccount & { example: string })[] {
+  const out = new Map<string, SpotifyAccount & { example: string }>();
   for (const f of favs) {
     if (!/spotify/i.test(f.uri)) continue;
     const sid = f.uri.match(/[?&]sid=(\d+)/)?.[1];
     const sn = f.uri.match(/[?&]sn=(\d+)/)?.[1];
-    if (!sid || !sn) continue;
+    if (!sid || !sn || out.has(sn)) continue;
     const desc = tag(f.meta, "desc") || `SA_RINCON${Number(sid) * 256 + 7}_X_#Svc${Number(sid) * 256 + 7}-0-Token`;
-    return { sid, sn, desc };
+    out.set(sn, { sid, sn, desc, example: f.title ?? "" });
   }
-  return null;
+  return [...out.values()].sort((a, b) => Number(a.sn) - Number(b.sn));
+}
+
+export function spotifyAccountFrom(favs: { uri: string; meta: string }[]): SpotifyAccount | null {
+  return spotifyAccountsFrom(favs)[0] ?? null;
 }
 
 /** Bygger Sonos-adresse og metadata for noe fra Spotify, slik Sonos-appen gjør. */
@@ -337,9 +347,10 @@ export class SonosManager {
   private known = new Set<string>();
   private topology: TopologyGroup[] = [];
   private topologyAt = 0;
-  private state: SonosState = { available: false, reason: "Leter etter Sonos-høyttalere …", groups: [], favorites: [], updatedAt: "" };
+  private state: SonosState = { available: false, reason: "Leter etter Sonos-høyttalere …", groups: [], favorites: [], spotifyAccounts: [], updatedAt: "" };
   private favorites: FavoriteItem[] = [];
   private favoritesAt = 0;
+  private accountNames: Record<string, string> = {};
   private lastJson = "";
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
@@ -359,8 +370,9 @@ export class SonosManager {
 
   async start(): Promise<void> {
     try {
-      const cached = JSON.parse(await readFile(this.cachePath, "utf8")) as { hosts?: string[] };
+      const cached = JSON.parse(await readFile(this.cachePath, "utf8")) as { hosts?: string[]; spotifyNames?: Record<string, unknown> };
       for (const h of cached.hosts ?? []) if (typeof h === "string") this.known.add(h);
+      for (const [sn, name] of Object.entries(cached.spotifyNames ?? {})) if (typeof name === "string") this.accountNames[sn] = name;
     } catch {
       // Ingen lagrede adresser ennå.
     }
@@ -405,6 +417,7 @@ export class SonosManager {
           reason: "",
           groups: groups.sort((a, b) => a.name.localeCompare(b.name, "nb")),
           favorites: this.favorites.map(({ id, title, art, kind }) => ({ id, title, art, kind })),
+          spotifyAccounts: this.publicAccounts(),
           updatedAt: "",
         });
       }
@@ -436,6 +449,7 @@ export class SonosManager {
         reason: "Fant ingen Sonos-høyttalere. Sett SONOS_IP til adressen til én av dem.",
         groups: [],
         favorites: [],
+        spotifyAccounts: [],
         updatedAt: "",
       });
       return;
@@ -485,7 +499,29 @@ export class SonosManager {
 
   private async saveHosts(): Promise<void> {
     await mkdir(dataDir, { recursive: true });
-    await writeFile(this.cachePath, JSON.stringify({ hosts: [...this.known] }, null, 2) + "\n");
+    const data = { hosts: [...this.known], spotifyNames: this.accountNames };
+    await writeFile(this.cachePath, JSON.stringify(data, null, 2) + "\n");
+  }
+
+  private publicAccounts(): SonosState["spotifyAccounts"] {
+    return spotifyAccountsFrom(this.favorites).map((a, i) => ({
+      sn: a.sn,
+      name: this.accountNames[a.sn] || `Konto ${i + 1}`,
+      example: a.example,
+    }));
+  }
+
+  hasSpotifyAccount(sn: string): boolean {
+    return spotifyAccountsFrom(this.favorites).some((a) => a.sn === sn);
+  }
+
+  /** Gir en Spotify-konto et navn som vises i dashbordet, f.eks. «Morten». Lagres i sonos.json. */
+  async nameSpotifyAccount(sn: string, name: string): Promise<void> {
+    const clean = name.trim().slice(0, 40);
+    if (clean) this.accountNames[sn] = clean;
+    else delete this.accountNames[sn];
+    await this.saveHosts();
+    this.setState({ ...this.state, spotifyAccounts: this.publicAccounts() });
   }
 
   private async readGroup(g: TopologyGroup): Promise<SonosGroup> {
@@ -574,13 +610,23 @@ export class SonosManager {
   }
 
   /** Spiller noe fra Spotify-søket, via Spotify-kontoen som er koblet til Sonos. */
-  async playSpotify(groupId: string, type: "track" | "album" | "playlist" | "artist", id: string, title: string): Promise<void> {
+  async playSpotify(
+    groupId: string,
+    type: "track" | "album" | "playlist" | "artist",
+    id: string,
+    title: string,
+    sn?: string,
+  ): Promise<void> {
     const g = this.group(groupId);
     if (!g) throw new Error("Fant ikke rommet");
-    let acc = spotifyAccountFrom(this.favorites);
-    if (!acc) {
+    const pick = () => {
+      const all = spotifyAccountsFrom(this.favorites);
+      return all.find((a) => a.sn === sn) ?? all[0] ?? null;
+    };
+    let acc = pick();
+    if (!acc || (sn && acc.sn !== sn)) {
       await this.loadFavorites();
-      acc = spotifyAccountFrom(this.favorites);
+      acc = pick();
     }
     if (!acc) {
       throw new Error("Fant ikke Spotify-kontoen i Sonos. Legg til en Spotify-spilleliste som favoritt i Sonos-appen først.");

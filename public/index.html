@@ -184,6 +184,11 @@
         </button>
       </header>
       <div class="search" id="spotify-box" hidden>
+        <div class="accounts" id="spotify-accounts" hidden>
+          <span class="accounts-label" id="spotify-accounts-label">Spill fra</span>
+          <div class="segmented" role="group" aria-labelledby="spotify-accounts-label" id="spotify-account-list"></div>
+          <button type="button" class="small" id="spotify-account-name">Gi navn</button>
+        </div>
         <label class="field"><span>Søk i Spotify</span>
           <input type="search" class="text-in search-in" id="spotify-q" placeholder="Artist, låt, album eller spilleliste" autocomplete="off" enterkeyhint="search">
         </label>
