@@ -220,6 +220,30 @@ export async function startWebServer(opts: {
       const id = decodeURIComponent(rawId);
       const exists = kind === "group" ? sonos.hasGroup(id) : sonos.hasPlayer(id);
       if (!exists) return json(res, 404, { error: kind === "group" ? "Fant ikke rommet" : "Fant ikke høyttaleren" });
+      if (req.method === "POST" && kind === "group" && action === "favorite") {
+        const body = await readBody(req);
+        if (typeof body.favoriteId !== "string" || body.favoriteId.length > 200) return json(res, 400, { error: "Send favoriteId" });
+        await sonos.playFavorite(id, body.favoriteId);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "group" && action === "all") {
+        await sonos.joinAll(id);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "group" && action === "split") {
+        await sonos.splitGroup(id);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "player" && action === "join") {
+        const body = await readBody(req);
+        if (typeof body.groupId !== "string" || !sonos.hasGroup(body.groupId)) return json(res, 404, { error: "Fant ikke rommet" });
+        await sonos.join(id, body.groupId);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "player" && action === "leave") {
+        await sonos.leave(id);
+        return json(res, 200, { ok: true });
+      }
       if (req.method === "POST" && kind === "group" && ["play", "pause", "next", "previous"].includes(action)) {
         await sonos.transport(id, action as "play" | "pause" | "next" | "previous");
         return json(res, 200, { ok: true });
