@@ -26,7 +26,8 @@ Finner den ikke broen, kan du oppgi IP-adressen selv: `npm run dev -- --ip 192.1
 
 ## Hva du ser
 
-I dashbordet:
+I dashbordet er alt delt i tre faner: **Lys**, **Musikk** og **Sikkerhet**. Hver fane viser en kort status, for eksempel «3 rom har lyset på» eller «Spiller i Kjøkken», så du ser det viktigste uten å bytte. Dashbordet husker hvilken fane du sist brukte, og dørklokke-varselet vises uansett fane.
+
 
 - **Rom og soner**: av/på, lysstyrke og scener for hvert rom og hver sone, med fargen lysene har nå. «Alt av» skrur av hele huset.
 - **Romvisning**: trykk på navnet til et rom for å styre hver lampe for seg, med av/på, lysstyrke, hvittone og farge, og for å se alle scenene.

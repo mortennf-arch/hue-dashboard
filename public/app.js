@@ -1266,8 +1266,6 @@ function updateSonosEl(entry, g) {
 }
 
 function renderSonos() {
-  const section = document.getElementById("music");
-  section.hidden = !sonos;
   if (!sonos) return;
   const hint = document.getElementById("music-hint");
   hint.hidden = !sonos.reason;
@@ -1283,6 +1281,83 @@ function renderSonos() {
     updateSonosEl(entry, g);
     grid.append(entry.el);
   }
+}
+
+// ---------- Faner ----------
+
+const TABS = ["lys", "musikk", "sikkerhet"];
+let tab = TABS.includes(storage("tab")) ? storage("tab") : "lys";
+
+function showTab(name, focus = false) {
+  if (!TABS.includes(name) || document.getElementById(`tab-${name}`).hidden) name = "lys";
+  tab = name;
+  for (const t of TABS) {
+    const btn = document.getElementById(`tab-${t}`);
+    const on = t === name;
+    btn.setAttribute("aria-selected", String(on));
+    btn.tabIndex = on ? 0 : -1;
+    document.getElementById(`panel-${t}`).hidden = !on;
+    if (on && focus) btn.focus();
+  }
+}
+
+function setStatus(id, text, kind = "") {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = `tab-status${kind ? ` ${kind}` : ""}`;
+}
+
+const shortTime = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
+
+function renderTabs() {
+  const roomsOn = all("room").filter((r) => serviceOf(r, "grouped_light")?.on?.on).length;
+  setStatus("status-lys", roomsOn ? `${roomsOn} rom har lyset på` : "Alt lys er av", roomsOn ? "active" : "");
+
+  const musicTab = document.getElementById("tab-musikk");
+  const hadMusic = !musicTab.hidden;
+  musicTab.hidden = !sonos;
+  if (sonos) {
+    const playing = (sonos.groups ?? []).filter((g) => g.state === "playing" || g.state === "transitioning");
+    if (playing.length) {
+      const more = playing.length > 1 ? ` og ${playing.length - 1} til` : "";
+      setStatus("status-musikk", `Spiller i ${playing[0].name}${more}`, "active");
+    } else if (!(sonos.groups ?? []).length) setStatus("status-musikk", "Ikke tilkoblet");
+    else setStatus("status-musikk", "Ingenting spilles");
+  }
+  // Fanen for musikk kommer først når serveren har fortalt om Sonos. Vis den lagrede fanen da.
+  if (!hadMusic && sonos && storage("tab") === "musikk" && tab !== "musikk") showTab("musikk");
+  if (hadMusic && !sonos && tab === "musikk") showTab("lys");
+
+  const ring = latestRing();
+  const today = new Date().toDateString();
+  const issues =
+    all("device_power").filter((p) => p.power_state && (p.power_state.battery_state !== "normal" || p.power_state.battery_level <= 15)).length +
+    all("zigbee_connectivity").filter((z) => z.status && z.status !== "connected").length;
+  if (ring && new Date(ring.time).toDateString() === today) {
+    const recent = Date.now() - new Date(ring.time).getTime() < BELL_WINDOW_MS;
+    setStatus("status-sikkerhet", `Det ringte på kl. ${shortTime.format(new Date(ring.time))}`, recent ? "alert" : "");
+  } else if (issues) setStatus("status-sikkerhet", `${issues} ting å sjekke`);
+  else setStatus("status-sikkerhet", "Ingen har ringt på i dag");
+}
+
+{
+  const tabs = TABS.map((t) => document.getElementById(`tab-${t}`));
+  for (const btn of tabs) {
+    btn.addEventListener("click", () => {
+      storage("tab", btn.dataset.tab);
+      showTab(btn.dataset.tab);
+    });
+    btn.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      const visible = tabs.filter((b) => !b.hidden);
+      const i = visible.indexOf(btn) + (e.key === "ArrowRight" ? 1 : -1);
+      const next = visible[(i + visible.length) % visible.length];
+      storage("tab", next.dataset.tab);
+      showTab(next.dataset.tab, true);
+      e.preventDefault();
+    });
+  }
+  showTab(tab);
 }
 
 // ---------- Samlet tegning ----------
@@ -1301,6 +1376,7 @@ function scheduleRender() {
     renderBell();
     renderDetail();
     renderSonos();
+    renderTabs();
   });
 }
 

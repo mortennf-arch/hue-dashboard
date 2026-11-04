@@ -29,60 +29,68 @@
       <button type="button" class="ghost" id="bell-close">Lukk</button>
     </section>
 
-    <div class="layout">
-      <div class="main-col">
-      <section aria-labelledby="music-h" class="music" id="music" hidden>
-        <div class="section-head">
-          <h2 id="music-h">Musikk</h2>
-          <span class="muted" id="music-count"></span>
-        </div>
-        <p class="hint" id="music-hint" hidden></p>
-        <div class="music-grid" id="music-groups"></div>
-      </section>
+    <nav class="tabs" role="tablist" aria-label="Visning">
+      <button type="button" role="tab" id="tab-lys" data-tab="lys" aria-controls="panel-lys" aria-selected="true">
+        <span class="tab-name">Lys</span><span class="tab-status" id="status-lys"></span>
+      </button>
+      <button type="button" role="tab" id="tab-musikk" data-tab="musikk" aria-controls="panel-musikk" aria-selected="false" hidden>
+        <span class="tab-name">Musikk</span><span class="tab-status" id="status-musikk"></span>
+      </button>
+      <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="panel-sikkerhet" aria-selected="false">
+        <span class="tab-name">Sikkerhet</span><span class="tab-status" id="status-sikkerhet"></span>
+      </button>
+    </nav>
 
-      <section aria-labelledby="rooms-h" class="rooms">
-        <div class="section-head">
-          <h2 id="rooms-h">Rom</h2>
-          <span class="muted" id="rooms-count"></span>
-          <div class="grow"></div>
-          <button type="button" class="small" data-create="room">+ Nytt rom</button>
-          <div class="segmented" role="group" aria-label="Vis rom">
-            <button type="button" data-filter="all" aria-pressed="true">Alle rom</button>
-            <button type="button" data-filter="on" aria-pressed="false">Bare på</button>
-          </div>
+    <section role="tabpanel" id="panel-lys" aria-labelledby="tab-lys" class="rooms">
+      <div class="section-head">
+        <h2 id="rooms-h">Rom</h2>
+        <span class="muted" id="rooms-count"></span>
+        <div class="grow"></div>
+        <button type="button" class="small" data-create="room">+ Nytt rom</button>
+        <div class="segmented" role="group" aria-label="Vis rom">
+          <button type="button" data-filter="all" aria-pressed="true">Alle rom</button>
+          <button type="button" data-filter="on" aria-pressed="false">Bare på</button>
         </div>
-        <div class="room-grid" id="rooms"></div>
-
-        <div class="section-head zones-head" id="zones-head">
-          <h2 id="zones-h">Soner</h2>
-          <div class="grow"></div>
-          <button type="button" class="small" data-create="zone">+ Ny sone</button>
-        </div>
-        <div class="room-grid" id="zones" aria-labelledby="zones-h"></div>
-      </section>
       </div>
+      <div class="room-grid" id="rooms"></div>
 
-      <aside class="side">
+      <div class="section-head zones-head" id="zones-head">
+        <h2 id="zones-h">Soner</h2>
+        <div class="grow"></div>
+        <button type="button" class="small" data-create="zone">+ Ny sone</button>
+      </div>
+      <div class="room-grid" id="zones" aria-labelledby="zones-h"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-musikk" aria-labelledby="tab-musikk" class="music" hidden>
+      <div class="section-head">
+        <h2 id="music-h">Høyttalere</h2>
+        <span class="muted" id="music-count"></span>
+      </div>
+      <p class="hint" id="music-hint" hidden></p>
+      <div class="music-grid" id="music-groups"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-sikkerhet" aria-labelledby="tab-sikkerhet" class="security-panel" hidden>
+      <div class="side">
         <section class="card" aria-labelledby="sec-h">
           <h2 id="sec-h">Sikkerhet</h2>
           <div class="tiles" id="security"></div>
         </section>
-
-        <section class="card events" aria-labelledby="ev-h">
-          <div class="section-head">
-            <h2 id="ev-h">Hendelser</h2>
-            <div class="grow"></div>
-            <span class="live" id="live"><span class="dot"></span>Live</span>
-          </div>
-          <ol class="event-list" id="events"></ol>
-        </section>
-
         <section class="card" aria-labelledby="health-h">
           <h2 id="health-h">Helse</h2>
           <div id="health"></div>
         </section>
-      </aside>
-    </div>
+      </div>
+      <section class="card events" aria-labelledby="ev-h">
+        <div class="section-head">
+          <h2 id="ev-h">Hendelser</h2>
+          <div class="grow"></div>
+          <span class="live" id="live"><span class="dot"></span>Live</span>
+        </div>
+        <ol class="event-list" id="events"></ol>
+      </section>
+    </section>
   </div>
   <dialog id="detail" aria-labelledby="detail-title">
     <div class="detail">
