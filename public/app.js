@@ -1303,6 +1303,8 @@ function openFavorites(coordinator) {
   const box = document.getElementById("spotify-box");
   box.hidden = !spotifyOn;
   document.getElementById("sonos-fav-head").hidden = !spotifyOn;
+  delete document.getElementById("spotify-account-list").dataset.key;
+  if (spotifyOn) renderAccounts();
   document.getElementById("sonos-fav").showModal();
   if (spotifyOn) document.getElementById("spotify-q").focus();
 }
@@ -1336,6 +1338,44 @@ function musicTile(title, sub, artUrl, play) {
   return btn;
 }
 
+// Hvilken Spotify-konto musikken spilles fra. Huskes per skjerm, siden hver person kan ha sin egen.
+let spotifyAccount = storage("spotifyAccount") ?? "";
+
+function currentAccount() {
+  const list = sonos?.spotifyAccounts ?? [];
+  return list.find((a) => a.sn === spotifyAccount) ?? list[0] ?? null;
+}
+
+function renderAccounts() {
+  const list = sonos?.spotifyAccounts ?? [];
+  const box = document.getElementById("spotify-accounts");
+  box.hidden = list.length < 2;
+  if (box.hidden) return;
+  const cur = currentAccount();
+  const key = JSON.stringify([list, cur?.sn]);
+  const wrap = document.getElementById("spotify-account-list");
+  if (wrap.dataset.key === key) return;
+  wrap.dataset.key = key;
+  wrap.replaceChildren(
+    ...list.map((a) =>
+      h(
+        "button",
+        {
+          type: "button",
+          "aria-pressed": String(a.sn === cur?.sn),
+          title: a.example ? `Har favoritten «${a.example}»` : undefined,
+          onclick: () => {
+            spotifyAccount = a.sn;
+            storage("spotifyAccount", a.sn);
+            renderAccounts();
+          },
+        },
+        a.name,
+      ),
+    ),
+  );
+}
+
 let searchSeq = 0;
 async function runSpotifySearch(q) {
   const seq = ++searchSeq;
@@ -1359,7 +1399,7 @@ async function runSpotifySearch(q) {
     list.replaceChildren(
       ...hits.map((r) =>
         musicTile(r.title, r.subtitle, r.art, (grp) =>
-          api("POST", sonosUrl("group", grp.id, "spotify"), { type: r.type, id: r.id, title: r.title }),
+          api("POST", sonosUrl("group", grp.id, "spotify"), { type: r.type, id: r.id, title: r.title, account: currentAccount()?.sn }),
         ),
       ),
     );
@@ -1380,6 +1420,13 @@ async function runSpotifySearch(q) {
     if (e.key !== "Enter") return;
     clearTimeout(timer);
     runSpotifySearch(input.value);
+  });
+  document.getElementById("spotify-account-name").addEventListener("click", () => {
+    const acc = currentAccount();
+    if (!acc) return;
+    const hint = acc.example ? ` (kontoen med favoritten «${acc.example}»)` : "";
+    const name = prompt(`Navn på ${acc.name}${hint}:`, acc.name);
+    if (name !== null) api("PUT", `/api/sonos/spotify-account/${acc.sn}`, { name });
   });
 }
 
@@ -1469,7 +1516,10 @@ function renderSpeakerPicker() {
 }
 
 function renderSonosDialogs() {
-  if (favFor) renderFavorites();
+  if (favFor) {
+    renderFavorites();
+    if (spotifyOn) renderAccounts();
+  }
   if (roomsFor) {
     // Rommet som styrte gruppen, kan ha blitt tatt ut av en annen. Lukk da dialogen.
     if (!groupOf(roomsFor)) document.getElementById("sonos-rooms").close();
