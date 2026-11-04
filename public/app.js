@@ -1217,6 +1217,12 @@ function createSonosEl(id) {
     h("div", { class: "np-track" }, art, h("div", { class: "np-text" }, title, artist)),
     h("div", { class: "np-controls" }, btn("Forrige", ICONS.prev, "previous"), play, btn("Neste", ICONS.next, "next")),
     h("div", { class: "np-vol" }, mute, vol.input, vol.out),
+    h(
+      "div",
+      { class: "np-actions" },
+      h("button", { type: "button", class: "small", onclick: () => g() && openFavorites(g().coordinator) }, "Velg musikk"),
+      h("button", { type: "button", class: "small", onclick: () => g() && openRooms(g().coordinator) }, "Rom i gruppen"),
+    ),
     members,
   );
   return { el, refs: { art, title, artist, name, state, play, mute, vol, members, memberList, memberEls } };
@@ -1232,7 +1238,7 @@ function updateSonosEl(entry, g) {
   r.state.textContent = STATE_TEXT[g.state] ?? "";
   const t = g.track;
   r.title.textContent = t?.title || "Ingenting valgt";
-  r.artist.textContent = t ? [t.artist, t.source].filter(Boolean).join(" · ") : "Velg musikk i Sonos-appen";
+  r.artist.textContent = t ? [t.artist, t.source].filter(Boolean).join(" · ") : "Trykk «Velg musikk» under";
   if ((r.art.dataset.src ?? "") !== (t?.art ?? "")) {
     r.art.dataset.src = t?.art ?? "";
     r.art.replaceChildren();
@@ -1280,6 +1286,139 @@ function renderSonos() {
     if (!entry) sonosEls.set(g.id, (entry = createSonosEl(g.id)));
     updateSonosEl(entry, g);
     grid.append(entry.el);
+  }
+}
+
+// ---------- Musikk: favoritter og grupper ----------
+
+// Dialogene følger rommet som styrer gruppen, siden gruppens id endres når rom kommer og går.
+let favFor = null;
+let roomsFor = null;
+const groupOf = (coordinator) => sonos?.groups.find((g) => g.coordinator === coordinator);
+
+function openFavorites(coordinator) {
+  favFor = coordinator;
+  renderFavorites();
+  document.getElementById("sonos-fav").showModal();
+}
+
+function renderFavorites() {
+  const dlg = document.getElementById("sonos-fav");
+  const g = favFor && groupOf(favFor);
+  if (!g) return;
+  document.getElementById("sonos-fav-title").textContent = `Spill i ${g.name}`;
+  const favs = sonos?.favorites ?? [];
+  const hint = document.getElementById("sonos-fav-hint");
+  hint.textContent = favs.length
+    ? "Trykk på det du vil høre."
+    : "Ingen favoritter ennå. Trykk på hjertet ved en spilleliste, et album eller en radiokanal i Sonos-appen, så dukker den opp her.";
+  const list = document.getElementById("sonos-fav-list");
+  if (list.dataset.key === JSON.stringify(favs)) return;
+  list.dataset.key = JSON.stringify(favs);
+  list.replaceChildren(
+    ...favs.map((f) => {
+      const art = h("div", { class: "fav-art", "aria-hidden": "true" });
+      if (f.art) {
+        const img = h("img", { src: f.art, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+        img.addEventListener("error", () => img.remove());
+        art.append(img);
+      }
+      const btn = h(
+        "button",
+        {
+          type: "button",
+          class: "fav",
+          onclick: async () => {
+            const grp = groupOf(favFor);
+            if (!grp) return;
+            btn.disabled = true;
+            const ok = await api("POST", sonosUrl("group", grp.id, "favorite"), { favoriteId: f.id });
+            btn.disabled = false;
+            if (ok) dlg.close();
+          },
+        },
+        art,
+        h("strong", {}, f.title),
+        h("span", {}, f.kind),
+      );
+      return btn;
+    }),
+  );
+}
+
+function openRooms(coordinator) {
+  roomsFor = coordinator;
+  delete document.getElementById("sonos-rooms-list").dataset.key;
+  renderSpeakerPicker();
+  document.getElementById("sonos-rooms").showModal();
+}
+
+function renderSpeakerPicker() {
+  const g = roomsFor && groupOf(roomsFor);
+  if (!g) return;
+  const lead = g.members.find((m) => m.uuid === g.coordinator) ?? g.members[0];
+  document.getElementById("sonos-rooms-title").textContent = `Rom som spiller sammen med ${lead.name}`;
+  const split = document.getElementById("sonos-split");
+  split.textContent = `Bare ${lead.name}`;
+  split.disabled = g.members.length < 2;
+  const players = sonos.groups.flatMap((x) => x.members.map((m) => ({ ...m, group: x }))).sort((a, b) => collator.compare(a.name, b.name));
+  document.getElementById("sonos-all").disabled = players.length === g.members.length;
+  const list = document.getElementById("sonos-rooms-list");
+  // Tegn bare på nytt når noe synlig har endret seg, så et trykk ikke havner på en knapp som byttes ut.
+  const key = JSON.stringify([g.coordinator, players.map((p) => [p.uuid, p.name, p.group.coordinator, p.group.state, p.group.track?.title])]);
+  if (list.dataset.key === key) return;
+  list.dataset.key = key;
+  list.replaceChildren(
+    ...players.map((p) => {
+      const inGroup = p.group.coordinator === g.coordinator;
+      const isLead = p.uuid === g.coordinator;
+      const other = p.group.state === "playing" ? `Spiller ${p.group.track?.title ?? "noe annet"}` : "Stille";
+      const sub = isLead ? "Styrer gruppen" : inGroup ? "Med. Trykk for å ta ut" : `${other}. Trykk for å legge til`;
+      return h(
+        "button",
+        {
+          type: "button",
+          class: "room-pick",
+          "aria-pressed": String(inGroup),
+          disabled: isLead,
+          onclick: () => {
+            const cur = groupOf(roomsFor);
+            if (!cur) return;
+            if (inGroup) api("POST", sonosUrl("player", p.uuid, "leave"));
+            else api("POST", sonosUrl("player", p.uuid, "join"), { groupId: cur.id });
+          },
+        },
+        h("strong", {}, p.name),
+        h("span", {}, sub),
+      );
+    }),
+  );
+}
+
+{
+  for (const id of ["sonos-fav", "sonos-rooms"]) {
+    const dlg = document.getElementById(id);
+    dlg.addEventListener("click", (e) => e.target === dlg && dlg.close());
+    dlg.querySelector("[data-close]").addEventListener("click", () => dlg.close());
+  }
+  document.getElementById("sonos-fav").addEventListener("close", () => (favFor = null));
+  document.getElementById("sonos-rooms").addEventListener("close", () => (roomsFor = null));
+  document.getElementById("sonos-all").addEventListener("click", () => {
+    const g = groupOf(roomsFor);
+    if (g) api("POST", sonosUrl("group", g.id, "all"));
+  });
+  document.getElementById("sonos-split").addEventListener("click", () => {
+    const g = groupOf(roomsFor);
+    if (g) api("POST", sonosUrl("group", g.id, "split"));
+  });
+}
+
+function renderSonosDialogs() {
+  if (favFor) renderFavorites();
+  if (roomsFor) {
+    // Rommet som styrte gruppen, kan ha blitt tatt ut av en annen. Lukk da dialogen.
+    if (!groupOf(roomsFor)) document.getElementById("sonos-rooms").close();
+    else renderSpeakerPicker();
   }
 }
 
@@ -1376,6 +1515,7 @@ function scheduleRender() {
     renderBell();
     renderDetail();
     renderSonos();
+    renderSonosDialogs();
     renderTabs();
   });
 }

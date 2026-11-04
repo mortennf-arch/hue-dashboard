@@ -43,17 +43,34 @@ export interface SonosGroup {
   track: SonosTrack | null;
 }
 
+/** En Sonos-favoritt slik dashbordet ser den. Adressen og metadata blir på serveren. */
+export interface SonosFavorite {
+  id: string;
+  title: string;
+  /** Full adresse til bilde, eller tom. */
+  art: string;
+  /** F.eks. «Spilleliste», «Radio», «Album». */
+  kind: string;
+}
+
+interface FavoriteItem extends SonosFavorite {
+  uri: string;
+  meta: string;
+}
+
 export interface SonosState {
   /** false når ingen høyttalere er funnet ennå. */
   available: boolean;
   reason: string;
   groups: SonosGroup[];
+  favorites: SonosFavorite[];
   updatedAt: string;
 }
 
 const PORT = 1400;
 const POLL_MS = 2000;
 const TOPOLOGY_MS = 10_000;
+const FAVORITES_MS = 60_000;
 const TIMEOUT_MS = 4000;
 
 const SERVICES = {
@@ -67,6 +84,7 @@ const SERVICES = {
     urn: "urn:schemas-upnp-org:service:GroupRenderingControl:1",
   },
   ZoneGroupTopology: { path: "/ZoneGroupTopology/Control", urn: "urn:schemas-upnp-org:service:ZoneGroupTopology:1" },
+  ContentDirectory: { path: "/MediaServer/ContentDirectory/Control", urn: "urn:schemas-upnp-org:service:ContentDirectory:1" },
 } as const;
 type Service = keyof typeof SERVICES;
 
@@ -173,6 +191,44 @@ export function parseTrack(meta: string, mediaMeta: string, host: string, rel: s
   };
 }
 
+/** Hva slags favoritt det er, ut fra adressen og klassen. */
+function favoriteKind(uri: string, upnpClass: string, meta: string): string {
+  const cls = `${upnpClass} ${tag(meta, "class")}`;
+  if (/^x-sonosapi-(stream|radio|hls)|^x-rincon-mp3radio|^aac:|^hls-radio/.test(uri) || /audioBroadcast/.test(cls)) return "Radio";
+  if (/playlist/i.test(cls) || /playlist/i.test(uri)) return "Spilleliste";
+  if (/musicAlbum/.test(cls) || /album/i.test(uri)) return "Album";
+  if (/musicArtist|person/.test(cls)) return "Artist";
+  if (/audioItem|musicTrack/.test(cls)) return "Låt";
+  return "Favoritt";
+}
+
+/** Leser favorittlisten (FV:2) fra ContentDirectory. */
+export function parseFavorites(didl: string, host: string): FavoriteItem[] {
+  const out: FavoriteItem[] = [];
+  for (const m of didl.matchAll(/<item\s([^>]*)>([\s\S]*?)<\/item>/g)) {
+    const id = attrs(m[1]).id;
+    const body = m[2];
+    const uri = tag(body, "res");
+    const title = tag(body, "title");
+    if (!id || !uri || !title) continue;
+    const meta = tag(body, "resMD");
+    out.push({
+      id,
+      title,
+      art: artUrl(tag(body, "albumArtURI") || tag(meta, "albumArtURI"), host),
+      kind: favoriteKind(uri, tag(body, "class"), meta),
+      uri,
+      meta,
+    });
+  }
+  return out;
+}
+
+/** Strømmer (radio o.l.) spilles direkte. Alt annet legges i køen først, slik Sonos-appen gjør. */
+export function playsDirect(uri: string): boolean {
+  return /^x-sonosapi-(stream|radio|hls|hls-static)|^x-rincon-mp3radio|^aac:|^hls-radio|^x-sonos-htastream/.test(uri);
+}
+
 // ---------- Kommunikasjon ----------
 
 async function soap(host: string, service: Service, action: string, args: Record<string, string | number> = {}): Promise<string> {
@@ -239,7 +295,9 @@ export class SonosManager {
   private known = new Set<string>();
   private topology: TopologyGroup[] = [];
   private topologyAt = 0;
-  private state: SonosState = { available: false, reason: "Leter etter Sonos-høyttalere …", groups: [], updatedAt: "" };
+  private state: SonosState = { available: false, reason: "Leter etter Sonos-høyttalere …", groups: [], favorites: [], updatedAt: "" };
+  private favorites: FavoriteItem[] = [];
+  private favoritesAt = 0;
   private lastJson = "";
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
@@ -299,7 +357,14 @@ export class SonosManager {
         // En høyttaler som ikke svarer, kan være slått av eller ha byttet adresse: hent oversikten på nytt neste gang.
         if (groups.length < results.length) this.topologyAt = 0;
         if (!groups.length) throw (results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason;
-        this.setState({ available: true, reason: "", groups: groups.sort((a, b) => a.name.localeCompare(b.name, "nb")), updatedAt: "" });
+        if (Date.now() - this.favoritesAt > FAVORITES_MS) await this.loadFavorites().catch(() => {});
+        this.setState({
+          available: true,
+          reason: "",
+          groups: groups.sort((a, b) => a.name.localeCompare(b.name, "nb")),
+          favorites: this.favorites.map(({ id, title, art, kind }) => ({ id, title, art, kind })),
+          updatedAt: "",
+        });
       }
     } catch (err) {
       this.topologyAt = 0;
@@ -328,6 +393,7 @@ export class SonosManager {
         available: false,
         reason: "Fant ingen Sonos-høyttalere. Sett SONOS_IP til adressen til én av dem.",
         groups: [],
+        favorites: [],
         updatedAt: "",
       });
       return;
@@ -357,6 +423,22 @@ export class SonosManager {
     }
     this.topology = [];
     throw new Error(`Får ikke kontakt med Sonos på ${candidates.join(", ")}${lastErr ? `: ${lastErr.message}` : ""}`);
+  }
+
+  /** Favorittene er felles for hele systemet, så det holder å spørre én høyttaler. */
+  private async loadFavorites(): Promise<void> {
+    const host = this.topology[0]?.members[0]?.host;
+    if (!host) return;
+    this.favoritesAt = Date.now();
+    const xml = await soap(host, "ContentDirectory", "Browse", {
+      ObjectID: "FV:2",
+      BrowseFlag: "BrowseDirectChildren",
+      Filter: "dc:title,res,upnp:albumArtURI,upnp:class,r:resMD",
+      StartingIndex: 0,
+      RequestedCount: 200,
+      SortCriteria: "",
+    });
+    this.favorites = parseFavorites(tag(xml, "Result"), host);
   }
 
   private async saveHosts(): Promise<void> {
@@ -433,6 +515,84 @@ export class SonosManager {
     const name = { play: "Play", pause: "Pause", next: "Next", previous: "Previous" }[action];
     await soap(host, "AVTransport", name, action === "play" ? { InstanceID: 0, Speed: 1 } : { InstanceID: 0 });
     this.refreshSoon();
+  }
+
+  private coordinatorHost(g: SonosGroup): string {
+    return g.members.find((m) => m.uuid === g.coordinator)?.host ?? g.members[0].host;
+  }
+
+  /** Spiller en Sonos-favoritt i et rom eller en gruppe. */
+  async playFavorite(groupId: string, favoriteId: string): Promise<void> {
+    const g = this.group(groupId);
+    if (!g) throw new Error("Fant ikke rommet");
+    if (!this.favorites.some((f) => f.id === favoriteId)) await this.loadFavorites();
+    const fav = this.favorites.find((f) => f.id === favoriteId);
+    if (!fav) throw new Error("Fant ikke favoritten");
+    const host = this.coordinatorHost(g);
+    if (playsDirect(fav.uri)) {
+      await soap(host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: fav.uri, CurrentURIMetaData: fav.meta });
+    } else {
+      await soap(host, "AVTransport", "RemoveAllTracksFromQueue", { InstanceID: 0 });
+      await soap(host, "AVTransport", "AddURIToQueue", {
+        InstanceID: 0,
+        EnqueuedURI: fav.uri,
+        EnqueuedURIMetaData: fav.meta,
+        DesiredFirstTrackNumberEnqueued: 0,
+        EnqueueAsNext: 0,
+      });
+      await soap(host, "AVTransport", "SetAVTransportURI", {
+        InstanceID: 0,
+        CurrentURI: `x-rincon-queue:${g.coordinator}#0`,
+        CurrentURIMetaData: "",
+      });
+    }
+    await soap(host, "AVTransport", "Play", { InstanceID: 0, Speed: 1 });
+    this.refreshSoon();
+  }
+
+  /** Legger en høyttaler til i en annen gruppe, slik at den spiller det samme. */
+  async join(uuid: string, groupId: string): Promise<void> {
+    const p = this.player(uuid);
+    const g = this.group(groupId);
+    if (!p || !g) throw new Error("Fant ikke rommet");
+    if (g.members.some((m) => m.uuid === uuid)) return;
+    await soap(p.host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: `x-rincon:${g.coordinator}`, CurrentURIMetaData: "" });
+    this.topologyChanged();
+  }
+
+  /** Tar en høyttaler ut av gruppen sin, slik at den spiller for seg selv. */
+  async leave(uuid: string): Promise<void> {
+    const p = this.player(uuid);
+    if (!p) throw new Error("Fant ikke høyttaleren");
+    await soap(p.host, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", { InstanceID: 0 });
+    this.topologyChanged();
+  }
+
+  /** Alle høyttalere spiller det samme som denne gruppen. */
+  async joinAll(groupId: string): Promise<void> {
+    const g = this.group(groupId);
+    if (!g) throw new Error("Fant ikke rommet");
+    const others = this.state.groups.flatMap((x) => x.members).filter((m) => !g.members.some((y) => y.uuid === m.uuid));
+    await Promise.all(
+      others.map((m) =>
+        soap(m.host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: `x-rincon:${g.coordinator}`, CurrentURIMetaData: "" }),
+      ),
+    );
+    this.topologyChanged();
+  }
+
+  /** Alle rom i gruppen spiller for seg selv igjen. Rommet som styrer gruppen, fortsetter å spille. */
+  async splitGroup(groupId: string): Promise<void> {
+    const g = this.group(groupId);
+    if (!g) throw new Error("Fant ikke rommet");
+    const others = g.members.filter((m) => m.uuid !== g.coordinator);
+    await Promise.all(others.map((m) => soap(m.host, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", { InstanceID: 0 })));
+    this.topologyChanged();
+  }
+
+  private topologyChanged(): void {
+    this.topologyAt = 0;
+    this.refreshSoon(600);
   }
 
   async setGroupVolume(groupId: string, opts: { volume?: number; mute?: boolean }): Promise<void> {
