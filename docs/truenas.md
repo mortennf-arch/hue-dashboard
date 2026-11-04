@@ -95,6 +95,21 @@ Appen trenger adressen til **én** av høyttalerne. Den forteller selv om alle d
 
 Appen husker alle høyttalerne den har sett i `sonos.json` i datasettet, så den finner dem igjen selv om én av dem får ny adresse.
 
+### Spotify-søk (valgfritt)
+
+Med Spotify-nøkler kan du søke etter artister, låter, album og spillelister i «Velg musikk» og spille dem på et rom.
+
+1. Gå til [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard), logg inn og trykk **Create app**. Redirect URI: `http://127.0.0.1:8095/callback`. Kryss av for **Web API**.
+2. Under **Settings** finner du **Client ID** og **Client secret**.
+3. Legg dem til under `environment` i TrueNAS:
+
+   ```yaml
+         SPOTIFY_CLIENT_ID: "..."
+         SPOTIFY_CLIENT_SECRET: "..."
+   ```
+
+Nøklene brukes bare til å søke. Musikken spilles gjennom Spotify-kontoen som er koblet til Sonos, og appen finner den ut fra en Spotify-favoritt. Ha derfor minst én Spotify-spilleliste som favoritt i Sonos-appen. Spotify krever at den som eier nøklene har Premium.
+
 ## Oppdatere
 
 Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et par minutter. I TrueNAS går du til **Apps > hue-dashboard > Edit** og trykker **Save**. Med `pull_policy: always` henter den da nyeste image.

@@ -183,6 +183,14 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
         </button>
       </header>
+      <div class="search" id="spotify-box" hidden>
+        <label class="field"><span>Søk i Spotify</span>
+          <input type="search" class="text-in search-in" id="spotify-q" placeholder="Artist, låt, album eller spilleliste" autocomplete="off" enterkeyhint="search">
+        </label>
+        <p class="hint" id="spotify-hint" hidden></p>
+        <div class="fav-grid" id="spotify-results"></div>
+      </div>
+      <h3 class="sub-h" id="sonos-fav-head">Favoritter</h3>
       <p class="hint" id="sonos-fav-hint"></p>
       <div class="fav-grid" id="sonos-fav-list"></div>
     </div>
