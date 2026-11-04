@@ -672,6 +672,18 @@ export class SonosManager {
   async leave(uuid: string): Promise<void> {
     const p = this.player(uuid);
     if (!p) throw new Error("Fant ikke høyttaleren");
+    // Styrer høyttaleren gruppen, gis styringen videre først, slik at musikken fortsetter i de andre rommene.
+    const g = this.state.groups.find((x) => x.coordinator === uuid && x.members.length > 1);
+    const heir = g?.members.find((m) => m.uuid !== uuid);
+    if (heir) {
+      try {
+        await soap(p.host, "AVTransport", "DelegateGroupCoordinationTo", { InstanceID: 0, NewCoordinator: heir.uuid, RejoinGroup: 0 });
+        this.topologyChanged();
+        return;
+      } catch {
+        // Eldre høyttalere kan mangle kommandoen. Da tas den ut på vanlig måte.
+      }
+    }
     await soap(p.host, "AVTransport", "BecomeCoordinatorOfStandaloneGroup", { InstanceID: 0 });
     this.topologyChanged();
   }

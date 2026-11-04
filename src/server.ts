@@ -303,7 +303,7 @@ export async function startWebServer(opts: {
   };
 
   const serveStatic = async (res: http.ServerResponse, url: URL) => {
-    const rel = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
+    const rel = url.pathname === "/" ? "index.html" : url.pathname === "/kjokken" ? "kjokken.html" : decodeURIComponent(url.pathname.slice(1));
     const file = path.resolve(publicDir, rel);
     if (!file.startsWith(publicDir + path.sep)) {
       res.writeHead(403).end();

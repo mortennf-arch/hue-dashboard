@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F1115">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Kjøkken</title>
+<link rel="stylesheet" href="kjokken.css">
+</head>
+<body>
+<div class="k-page">
+  <header class="k-top">
+    <div class="k-time">
+      <span id="k-clock" class="k-clock">--:--</span>
+      <span id="k-date" class="k-date"></span>
+    </div>
+    <nav class="k-tabs" role="tablist" aria-label="Visning">
+      <button type="button" role="tab" id="tab-musikk" data-tab="musikk" aria-controls="k-musikk">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        Musikk
+      </button>
+      <button type="button" role="tab" id="tab-lys" data-tab="lys" aria-controls="k-lys">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+        Lys
+      </button>
+      <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="k-sikkerhet">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Sikkerhet
+      </button>
+    </nav>
+    <div class="k-status">
+      <span id="k-bell-chip" class="k-chip">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span id="k-bell-chip-text">Ingen har ringt på i dag</span>
+      </span>
+      <span id="k-offline" class="k-chip k-offline" hidden><span class="k-dot"></span>Ingen kontakt</span>
+    </div>
+  </header>
+
+  <main class="k-main">
+    <section id="k-musikk" role="tabpanel" aria-labelledby="tab-musikk" class="k-music">
+      <section class="k-rooms" aria-labelledby="k-rooms-h">
+        <h2 id="k-rooms-h" class="k-label">Hvor skal det spille?</h2>
+        <div id="k-room-list" class="k-room-list"></div>
+        <p id="k-rooms-hint" class="k-hint" hidden></p>
+      </section>
+
+      <section class="k-now" aria-labelledby="k-now-h">
+        <h2 id="k-now-h" class="k-label">Spilles nå</h2>
+        <div id="k-now-empty" class="k-empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M12 6h.01"/></svg>
+          <strong>Ingen rom valgt</strong>
+          <span>Trykk på ett eller flere rom til venstre.</span>
+        </div>
+        <div id="k-now-body" class="k-now-body" hidden>
+          <div class="k-track">
+            <div id="k-art" class="k-art" aria-hidden="true"></div>
+            <div class="k-track-text">
+              <strong id="k-title"></strong>
+              <span id="k-artist"></span>
+              <span id="k-source" class="k-source"></span>
+            </div>
+          </div>
+          <div class="k-transport">
+            <button type="button" id="k-prev" class="k-round" aria-label="Forrige">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 20 9 12l10-8v16zM5 19V5"/></svg>
+            </button>
+            <button type="button" id="k-play" class="k-round k-play" aria-label="Spill"></button>
+            <button type="button" id="k-next" class="k-round" aria-label="Neste">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 4 10 8-10 8V4zM19 5v14"/></svg>
+            </button>
+          </div>
+          <div id="k-volumes" class="k-volumes"></div>
+        </div>
+      </section>
+
+      <aside class="k-pick" aria-labelledby="k-pick-h">
+        <h2 id="k-pick-h" class="k-label">Hva skal spilles?</h2>
+        <button type="button" id="k-search-open" class="k-search-btn" hidden>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          Søk i Spotify
+        </button>
+        <div id="k-favs" class="k-fav-grid"></div>
+        <p id="k-favs-hint" class="k-hint" hidden></p>
+      </aside>
+    </section>
+
+    <section id="k-lys" role="tabpanel" aria-labelledby="tab-lys" class="k-lys" hidden>
+      <div class="k-lys-head">
+        <h2 class="k-label">Lys</h2>
+        <button type="button" id="k-all-off" class="k-secondary">Skru av alt lys</button>
+      </div>
+      <div id="k-light-grid" class="k-light-grid"></div>
+      <p id="k-lys-hint" class="k-hint" hidden></p>
+    </section>
+
+    <section id="k-sikkerhet" role="tabpanel" aria-labelledby="tab-sikkerhet" class="k-sikkerhet" hidden>
+      <h2 class="k-label">Sikkerhet</h2>
+      <article class="k-card k-bell-card">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <div>
+          <strong id="k-bell-title">Ingen har ringt på i dag</strong>
+          <span id="k-bell-detail"></span>
+        </div>
+      </article>
+      <p class="k-hint">Når det ringer på, kommer det et varsel over hele skjermen, uansett hvilken fane som er åpen.</p>
+    </section>
+  </main>
+</div>
+
+<dialog id="k-search" class="k-dialog" aria-labelledby="k-search-h">
+  <div class="k-dialog-head">
+    <h2 id="k-search-h">Søk i Spotify</h2>
+    <button type="button" id="k-search-close" class="k-close" aria-label="Lukk">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div id="k-accounts" class="k-accounts" hidden>
+    <span>Spill fra</span>
+    <div id="k-account-list" class="k-account-list"></div>
+  </div>
+  <label for="k-q" class="k-sr">Søk etter artist, sang, album eller spilleliste</label>
+  <input id="k-q" type="search" class="k-q" placeholder="Artist, sang, album eller spilleliste" autocomplete="off" enterkeyhint="search">
+  <p id="k-search-hint" class="k-hint" hidden></p>
+  <div id="k-results" class="k-fav-grid k-results"></div>
+</dialog>
+
+<div id="k-toast" class="k-toast" role="status" hidden></div>
+
+<div id="k-ring" class="k-ring" role="alertdialog" aria-labelledby="k-ring-title" hidden>
+  <svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+  <strong id="k-ring-title">Det ringer på!</strong>
+  <span id="k-ring-detail"></span>
+  <button type="button" id="k-ring-close" class="k-ring-close">Lukk</button>
+</div>
+
+<script src="kjokken.js"></script>
+</body>
+</html>

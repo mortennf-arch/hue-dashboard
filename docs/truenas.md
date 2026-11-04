@@ -112,6 +112,16 @@ Nøklene brukes bare til å søke. Musikken spilles gjennom Spotify-kontoen som 
 
 Har dere flere Spotify-kontoer i Sonos, for eksempel én hver, dukker et valg «Spill fra» opp over søkefeltet. Hver konto blir med når den har minst én favoritt i Sonos. Trykk «Gi navn» for å kalle kontoene for eksempel «Morten» og «Kari». Navnene lagres i `sonos.json`, og hver skjerm husker hvilken konto som sist ble valgt.
 
+## Kjøkkennettbrett (valgfritt)
+
+En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har tre faner: Musikk, Lys og Sikkerhet.
+
+- **Musikk:** rommene til venstre kommer rett fra Sonos. Rom som er merket med gult, spiller sammen. Trykk på et rom for å legge det til eller ta det ut. Med flere rom valgt får hvert rom sin egen volumknapp, pluss «Alle rom».
+- **Lys:** av/på, lysstyrke og scener for hvert Hue-rom.
+- **Dørklokke:** når noen ringer på, dekker et varsel hele skjermen med en lyd, uansett hvilken fane som er åpen.
+
+På et Android-nettbrett passer appen **Fully Kiosk Browser** godt. Sett «Start URL» til adressen over, og slå på «Keep Screen On» og fullskjerm. Lyden ved ringing virker etter at noen har trykket på skjermen én gang etter at siden er lastet. I Fully Kiosk kan du også slå på «Autoplay Videos/Audio» under «Web Content Settings».
+
 ## Oppdatere
 
 Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et par minutter. I TrueNAS går du til **Apps > hue-dashboard > Edit** og trykker **Save**. Med `pull_policy: always` henter den da nyeste image.

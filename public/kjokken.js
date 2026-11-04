@@ -1,0 +1,830 @@
+// Kjøkkenvisning for nettbrettet. Bruker samme hendelsesstrøm og samme API som dashbordet.
+//
+// Musikk: rommene som er merket med gult, spiller sammen. Et trykk på et rom legger det til i gruppen
+// eller tar det ut. Gruppen holdes rede på med én høyttaler («ankeret»), siden gruppens id kan endre seg.
+
+const byId = new Map();
+let sonos = null;
+let spotifyOn = false;
+let online = false;
+
+// ---------- Hjelpere ----------
+
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children.flat()) {
+    if (c === null || c === undefined || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+function storage(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+const collator = new Intl.Collator("nb");
+const shortTime = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
+const $ = (id) => document.getElementById(id);
+
+let toastTimer = null;
+function toast(text) {
+  const el = $("k-toast");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.hidden = true), 4000);
+}
+
+async function api(method, url, body) {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    return data;
+  } catch (err) {
+    console.error(err);
+    toast(`Det gikk ikke: ${err.message}`);
+    return null;
+  }
+}
+
+/** Sender høyst én verdi per tidsrom og alltid den siste, slik at en glidebryter ikke drukner høyttaleren. */
+function throttled(ms, fn) {
+  let last = 0;
+  let timer = null;
+  let pending = null;
+  return (v) => {
+    pending = v;
+    const wait = last + ms - Date.now();
+    if (wait <= 0) {
+      last = Date.now();
+      fn(pending);
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        timer = null;
+        last = Date.now();
+        fn(pending);
+      }, wait);
+    }
+  };
+}
+
+const PLAY_SVG = '<svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>';
+const PAUSE_SVG =
+  '<svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+const MUSIC_SVG =
+  '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+
+const sonosUrl = (kind, id, action) => `/api/sonos/${kind}/${encodeURIComponent(id)}/${action}`;
+
+/** Bilde som forsvinner stille hvis det ikke kan lastes. */
+function artImg(url) {
+  if (!url) return null;
+  const img = h("img", { src: url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+  img.addEventListener("error", () => img.remove());
+  return img;
+}
+
+function setFill(input) {
+  input.style.setProperty("--fill", `${input.value}%`);
+}
+
+// ---------- Faner ----------
+
+const TABS = ["musikk", "lys", "sikkerhet"];
+let tab = TABS.includes(storage("kTab")) ? storage("kTab") : "musikk";
+
+function showTab(name) {
+  tab = name;
+  storage("kTab", name);
+  for (const t of TABS) {
+    const btn = $(`tab-${t}`);
+    btn.setAttribute("aria-selected", String(t === name));
+    btn.tabIndex = t === name ? 0 : -1;
+    $(`k-${t}`).hidden = t !== name;
+  }
+}
+
+for (const btn of document.querySelectorAll("[role=tab]")) {
+  btn.addEventListener("click", () => showTab(btn.dataset.tab));
+  btn.addEventListener("keydown", (e) => {
+    const i = TABS.indexOf(btn.dataset.tab);
+    const next = e.key === "ArrowRight" ? TABS[(i + 1) % TABS.length] : e.key === "ArrowLeft" ? TABS[(i + TABS.length - 1) % TABS.length] : null;
+    if (!next) return;
+    e.preventDefault();
+    showTab(next);
+    $(`tab-${next}`).focus();
+  });
+}
+showTab(tab);
+
+// ---------- Klokke ----------
+
+const dateFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "long", day: "numeric", month: "long" });
+function tick() {
+  const now = new Date();
+  $("k-clock").textContent = shortTime.format(now);
+  $("k-date").textContent = dateFmt.format(now);
+}
+tick();
+setInterval(tick, 5000);
+
+// ---------- Musikk: hvilke rom som spiller sammen ----------
+
+// Ankeret er en høyttaler i gruppen som styres. "none" betyr at hun bevisst har tatt bort alle rom.
+let anchor = storage("kAnchor");
+const pending = new Map(); // uuid -> { want: boolean, until: tid }
+
+function setAnchor(uuid) {
+  anchor = uuid ?? "none";
+  storage("kAnchor", anchor);
+}
+
+const groupWith = (uuid) => sonos?.groups.find((g) => g.members.some((m) => m.uuid === uuid)) ?? null;
+
+function currentGroup() {
+  if (!sonos?.groups?.length) return null;
+  if (anchor === null) {
+    // Første gang på denne skjermen: velg det som spiller nå, ellers ingenting.
+    const playing = sonos.groups.find((g) => g.state === "playing");
+    if (!playing) return null;
+    setAnchor(playing.coordinator);
+  }
+  if (anchor === "none") return null;
+  return groupWith(anchor);
+}
+
+function allPlayers() {
+  const list = (sonos?.groups ?? []).flatMap((g) => g.members.map((m) => ({ ...m, group: g })));
+  return list.sort((a, b) => collator.compare(a.name, b.name));
+}
+
+/** Er rommet merket? Et trykk som ikke er bekreftet av høyttalerne ennå, teller med en stund. */
+function isSelected(uuid, g) {
+  const p = pending.get(uuid);
+  if (p) {
+    const actual = Boolean(g?.members.some((m) => m.uuid === uuid));
+    if (actual === p.want || Date.now() > p.until) pending.delete(uuid);
+    else return p.want;
+  }
+  return Boolean(g?.members.some((m) => m.uuid === uuid));
+}
+
+function selectedPlayers(g) {
+  return allPlayers().filter((p) => isSelected(p.uuid, g));
+}
+
+async function toggleRoom(uuid) {
+  const g = currentGroup();
+  const on = isSelected(uuid, g);
+  if (!on) {
+    if (!g) {
+      // Ingen rom er valgt: rommet blir valgt, sammen med rommene det alt spiller sammen med.
+      setAnchor(uuid);
+      render();
+      return;
+    }
+    pending.set(uuid, { want: true, until: Date.now() + 8000 });
+    render();
+    const ok = await api("POST", sonosUrl("player", uuid, "join"), { groupId: g.id });
+    if (!ok) pending.delete(uuid);
+    render();
+    return;
+  }
+  const chosen = selectedPlayers(g);
+  if (chosen.length > 1) {
+    if (uuid === anchor) setAnchor(chosen.find((p) => p.uuid !== uuid).uuid);
+    pending.set(uuid, { want: false, until: Date.now() + 8000 });
+    render();
+    const ok = await api("POST", sonosUrl("player", uuid, "leave"));
+    if (!ok) pending.delete(uuid);
+    render();
+    return;
+  }
+  // Det siste rommet tas bort: musikken stoppes der, og ingen rom er valgt.
+  const grp = groupWith(uuid);
+  setAnchor(null);
+  render();
+  if (grp?.state === "playing") await api("POST", sonosUrl("group", grp.id, "pause"));
+}
+
+// ---------- Musikk: tegning ----------
+
+const roomEls = new Map(); // uuid -> knapp
+
+function roomSub(p, selected, g) {
+  const grp = p.group;
+  if (selected) {
+    if (pending.has(p.uuid)) return "Kobles til …";
+    return g?.state === "playing" ? "Spiller her" : "Valgt";
+  }
+  if (pending.has(p.uuid)) return "Tas ut …";
+  if (grp.state === "playing" && (!g || grp.id !== g.id)) {
+    const t = grp.track?.title;
+    return t ? `Spiller ${t}` : "Spiller noe annet";
+  }
+  return "Stille";
+}
+
+function renderRooms(g) {
+  const list = $("k-room-list");
+  const players = allPlayers();
+  const hint = $("k-rooms-hint");
+  if (!sonos) {
+    hint.hidden = false;
+    hint.textContent = "Sonos er ikke satt opp på serveren.";
+  } else if (!sonos.available) {
+    hint.hidden = false;
+    hint.textContent = sonos.reason || "Leter etter høyttalere …";
+  } else hint.hidden = true;
+
+  const ids = players.map((p) => p.uuid);
+  for (const [id, el] of roomEls) {
+    if (!ids.includes(id)) {
+      el.remove();
+      roomEls.delete(id);
+    }
+  }
+  players.forEach((p, i) => {
+    let el = roomEls.get(p.uuid);
+    if (!el) {
+      el = h("button", { type: "button", class: "k-room", onclick: () => toggleRoom(p.uuid) }, h("strong"), h("span"));
+      roomEls.set(p.uuid, el);
+    }
+    const sel = isSelected(p.uuid, g);
+    el.setAttribute("aria-pressed", String(sel));
+    el.classList.toggle("busy", pending.has(p.uuid));
+    el.children[0].textContent = p.name;
+    el.children[1].textContent = roomSub(p, sel, g);
+    if (list.children[i] !== el) list.insertBefore(el, list.children[i] ?? null);
+  });
+}
+
+// Glidebrytere som brukeren holder i, skal ikke hoppe tilbake når nye verdier kommer fra høyttalerne.
+const holding = new Map(); // input -> tid da den kan oppdateres igjen
+const volRows = new Map(); // nøkkel -> { row, input, out }
+
+function volumeRow(key, label, cls, send) {
+  const id = `k-vol-${key.replace(/[^A-Za-z0-9_-]/g, "")}`;
+  const input = h("input", { id, type: "range", min: 0, max: 100, step: 1 });
+  const out = h("output", { for: id });
+  const push = throttled(200, send);
+  input.addEventListener("pointerdown", () => holding.set(input, Infinity));
+  const release = () => holding.set(input, Date.now() + 2500);
+  input.addEventListener("pointerup", release);
+  input.addEventListener("pointercancel", release);
+  input.addEventListener("input", () => {
+    if (!holding.has(input)) holding.set(input, Date.now() + 2500);
+    else if (holding.get(input) !== Infinity) holding.set(input, Date.now() + 2500);
+    out.textContent = input.value;
+    setFill(input);
+    push(Number(input.value));
+  });
+  const row = h("div", { class: `k-vol ${cls}` }, h("label", { for: id }, label), input, out);
+  return { row, input, out };
+}
+
+function setVolume(entry, value) {
+  const until = holding.get(entry.input);
+  if (until !== undefined && (until === Infinity || Date.now() < until)) return;
+  holding.delete(entry.input);
+  entry.input.value = String(value);
+  entry.out.textContent = String(value);
+  setFill(entry.input);
+}
+
+function renderVolumes(g) {
+  const box = $("k-volumes");
+  const rows = [];
+  if (g.members.length > 1) {
+    const key = `group:${g.id}`;
+    if (!volRows.has(key)) {
+      volRows.set(key, volumeRow(key, "Alle rom", "master", (v) => api("PUT", sonosUrl("group", g.id, "volume"), { volume: v })));
+    }
+    const e = volRows.get(key);
+    setVolume(e, g.volume);
+    rows.push([key, e]);
+  }
+  for (const m of g.members) {
+    const key = `player:${m.uuid}`;
+    const label = g.members.length > 1 ? m.name : "Volum";
+    let e = volRows.get(key);
+    if (e && e.label !== label) {
+      e.row.remove();
+      e = null;
+    }
+    if (!e) {
+      e = volumeRow(key, label, "", (v) => api("PUT", sonosUrl("player", m.uuid, "volume"), { volume: v }));
+      e.label = label;
+      volRows.set(key, e);
+    }
+    setVolume(e, m.volume);
+    rows.push([key, e]);
+  }
+  const keep = new Set(rows.map(([k]) => k));
+  for (const [k, e] of volRows) {
+    if (!keep.has(k)) {
+      e.row.remove();
+      volRows.delete(k);
+    }
+  }
+  rows.forEach(([, e], i) => {
+    if (box.children[i] !== e.row) box.insertBefore(e.row, box.children[i] ?? null);
+  });
+}
+
+let artKey = "";
+function renderNow(g) {
+  const empty = $("k-now-empty");
+  const body = $("k-now-body");
+  const head = $("k-now-h");
+  if (!g) {
+    head.textContent = "Spilles nå";
+    empty.hidden = false;
+    body.hidden = true;
+    return;
+  }
+  empty.hidden = true;
+  body.hidden = false;
+  const names = g.members.map((m) => m.name);
+  head.textContent = names.length <= 3 ? `Spilles nå i ${names.join(" + ")}` : `Spilles nå i ${names.length} rom`;
+  $("k-now-h").parentElement.classList.toggle("many", g.members.length > 2);
+
+  const t = g.track;
+  const playing = g.state === "playing" || g.state === "transitioning";
+  $("k-title").textContent = t?.title || "Ingenting spilles";
+  $("k-artist").textContent = t ? t.artist || t.album || "" : "Velg musikk til høyre";
+  $("k-source").textContent = t?.source && t.source !== t.title ? t.source : "";
+  const art = $("k-art");
+  const key = t?.art ?? "";
+  if (key !== artKey) {
+    artKey = key;
+    art.innerHTML = MUSIC_SVG;
+    const img = artImg(key);
+    if (img) {
+      img.addEventListener("error", () => (art.innerHTML = MUSIC_SVG));
+      art.replaceChildren(img);
+    }
+  }
+  const play = $("k-play");
+  const wantKey = playing ? "pause" : "play";
+  if (play.dataset.mode !== wantKey) {
+    play.dataset.mode = wantKey;
+    play.innerHTML = playing ? PAUSE_SVG : PLAY_SVG;
+    play.setAttribute("aria-label", playing ? "Pause" : "Spill");
+  }
+  renderVolumes(g);
+}
+
+for (const [id, action] of [
+  ["k-prev", "previous"],
+  ["k-next", "next"],
+]) {
+  $(id).addEventListener("click", () => {
+    const g = currentGroup();
+    if (g) api("POST", sonosUrl("group", g.id, action));
+  });
+}
+$("k-play").addEventListener("click", () => {
+  const g = currentGroup();
+  if (!g) return;
+  api("POST", sonosUrl("group", g.id, $("k-play").dataset.mode === "pause" ? "pause" : "play"));
+});
+
+// ---------- Musikk: favoritter og Spotify ----------
+
+/** Spiller noe i rommene som er valgt. Uten valgte rom får hun beskjed om å velge rom først. */
+async function playIn(send) {
+  const g = currentGroup();
+  if (!g) {
+    toast("Velg rom til venstre først");
+    const rooms = document.querySelector(".k-rooms");
+    rooms.classList.remove("nudge");
+    void rooms.offsetWidth;
+    rooms.classList.add("nudge");
+    setTimeout(() => rooms.classList.remove("nudge"), 2500);
+    return false;
+  }
+  return Boolean(await send(g));
+}
+
+function musicTile(title, sub, art, send, after) {
+  const btn = h(
+    "button",
+    {
+      type: "button",
+      class: "k-fav",
+      onclick: async () => {
+        btn.disabled = true;
+        const ok = await playIn(send);
+        btn.disabled = false;
+        if (ok && after) after();
+      },
+    },
+    h("span", { class: "k-fav-art", "aria-hidden": "true" }, artImg(art)),
+    h("strong", {}, title),
+    sub ? h("span", {}, sub) : null,
+  );
+  return btn;
+}
+
+function renderFavorites() {
+  const favs = sonos?.favorites ?? [];
+  const grid = $("k-favs");
+  const key = JSON.stringify(favs);
+  const hint = $("k-favs-hint");
+  hint.hidden = favs.length > 0 || !sonos?.available;
+  hint.textContent = "Ingen favoritter ennå. Trykk på hjertet ved en spilleliste eller radiokanal i Sonos-appen, så dukker den opp her.";
+  if (grid.dataset.key === key) return;
+  grid.dataset.key = key;
+  grid.replaceChildren(
+    ...favs.map((f) => musicTile(f.title, f.kind, f.art, (g) => api("POST", sonosUrl("group", g.id, "favorite"), { favoriteId: f.id }))),
+  );
+}
+
+let spotifyAccount = storage("spotifyAccount") ?? "";
+function currentAccount() {
+  const list = sonos?.spotifyAccounts ?? [];
+  return list.find((a) => a.sn === spotifyAccount) ?? list[0] ?? null;
+}
+
+function renderAccounts() {
+  const list = sonos?.spotifyAccounts ?? [];
+  const box = $("k-accounts");
+  box.hidden = list.length < 2;
+  if (box.hidden) return;
+  const cur = currentAccount();
+  const wrap = $("k-account-list");
+  const key = JSON.stringify([list, cur?.sn]);
+  if (wrap.dataset.key === key) return;
+  wrap.dataset.key = key;
+  wrap.replaceChildren(
+    ...list.map((a) =>
+      h(
+        "button",
+        {
+          type: "button",
+          "aria-pressed": String(a.sn === cur?.sn),
+          onclick: () => {
+            spotifyAccount = a.sn;
+            storage("spotifyAccount", a.sn);
+            renderAccounts();
+          },
+        },
+        a.name,
+      ),
+    ),
+  );
+}
+
+let searchSeq = 0;
+async function runSearch(q) {
+  const seq = ++searchSeq;
+  const hint = $("k-search-hint");
+  const list = $("k-results");
+  if (!q.trim()) {
+    hint.hidden = true;
+    list.replaceChildren();
+    return;
+  }
+  hint.hidden = false;
+  hint.textContent = "Søker …";
+  try {
+    const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json().catch(() => ({}));
+    if (seq !== searchSeq) return;
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    const hits = data.results ?? [];
+    hint.hidden = hits.length > 0;
+    hint.textContent = "Fant ingenting. Prøv et annet ord.";
+    list.replaceChildren(
+      ...hits.map((r) =>
+        musicTile(
+          r.title,
+          r.subtitle,
+          r.art,
+          (g) => api("POST", sonosUrl("group", g.id, "spotify"), { type: r.type, id: r.id, title: r.title, account: currentAccount()?.sn }),
+          () => $("k-search").close(),
+        ),
+      ),
+    );
+  } catch (err) {
+    if (seq !== searchSeq) return;
+    hint.textContent = `Søket feilet: ${err.message}`;
+  }
+}
+
+{
+  const input = $("k-q");
+  let timer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => runSearch(input.value), 400);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    clearTimeout(timer);
+    input.blur(); // lukker tastaturet så treffene synes
+    runSearch(input.value);
+  });
+  $("k-search-open").addEventListener("click", () => {
+    delete $("k-account-list").dataset.key;
+    renderAccounts();
+    $("k-search").showModal();
+    input.focus();
+    input.select();
+  });
+  $("k-search-close").addEventListener("click", () => $("k-search").close());
+  $("k-search").addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.close();
+  });
+}
+
+function renderMusic() {
+  const g = currentGroup();
+  renderRooms(g);
+  renderNow(g);
+  renderFavorites();
+  $("k-search-open").hidden = !spotifyOn;
+  if ($("k-search").open) renderAccounts();
+}
+
+// ---------- Lys ----------
+
+const all = (type) => [...byId.values()].filter((r) => r.type === type);
+const serviceOf = (res, rtype) => {
+  const s = (res?.services ?? []).find((x) => x.rtype === rtype);
+  return s ? byId.get(s.rid) : undefined;
+};
+
+function lightRoomView(room) {
+  const gl = serviceOf(room, "grouped_light");
+  const on = Boolean(gl?.on?.on);
+  const scenes = all("scene")
+    .filter((s) => s.group?.rid === room.id)
+    .map((s) => ({ id: s.id, name: s.metadata?.name ?? "Scene", active: Boolean(s.status?.active && s.status.active !== "inactive") }))
+    .sort((a, b) => collator.compare(a.name, b.name))
+    .slice(0, 4);
+  return { id: room.id, name: room.metadata?.name ?? "Rom", glId: gl?.id, on, dim: on ? Math.round(gl?.dimming?.brightness ?? 0) : 0, scenes };
+}
+
+const lightEls = new Map(); // rom-id -> { el, refs }
+const sendBrightness = new Map(); // grouped_light-id -> strupt funksjon
+
+function createLightEl(id) {
+  const name = h("strong");
+  const status = h("span");
+  const sw = h("button", { type: "button", class: "k-switch" });
+  const sliderId = `k-dim-${id}`;
+  const slider = h("input", { id: sliderId, type: "range", min: 1, max: 100, step: 1, "aria-label": "Lysstyrke" });
+  const scenes = h("div", { class: "k-scenes" });
+  const el = h("article", { class: "k-card k-light" }, h("div", { class: "k-light-head" }, h("div", {}, name, status), sw), slider, scenes);
+  const refs = { name, status, sw, slider, scenes, view: null };
+  sw.addEventListener("click", () => {
+    const v = refs.view;
+    if (!v?.glId) return;
+    api("PUT", `/api/grouped_light/${v.glId}`, { on: !v.on });
+  });
+  slider.addEventListener("pointerdown", () => holding.set(slider, Infinity));
+  const release = () => holding.set(slider, Date.now() + 2500);
+  slider.addEventListener("pointerup", release);
+  slider.addEventListener("pointercancel", release);
+  slider.addEventListener("input", () => {
+    const v = refs.view;
+    if (!v?.glId) return;
+    if (holding.get(slider) !== Infinity) holding.set(slider, Date.now() + 2500);
+    setFill(slider);
+    if (!sendBrightness.has(v.glId)) {
+      const glId = v.glId;
+      sendBrightness.set(glId, throttled(250, (b) => api("PUT", `/api/grouped_light/${glId}`, { brightness: b })));
+    }
+    sendBrightness.get(v.glId)(Number(slider.value));
+  });
+  return { el, refs };
+}
+
+function updateLightEl({ el, refs }, v) {
+  refs.view = v;
+  refs.name.textContent = v.name;
+  refs.status.textContent = v.on ? `På · ${v.dim} %` : "Av";
+  refs.sw.setAttribute("aria-pressed", String(v.on));
+  refs.sw.setAttribute("aria-label", `${v.name}: ${v.on ? "skru av" : "skru på"}`);
+  el.classList.toggle("on", v.on);
+  const until = holding.get(refs.slider);
+  if (until === undefined || (until !== Infinity && Date.now() > until)) {
+    holding.delete(refs.slider);
+    refs.slider.value = String(v.on ? v.dim : 1);
+    setFill(refs.slider);
+  }
+  refs.slider.setAttribute("aria-label", `Lysstyrke i ${v.name}`);
+  const key = JSON.stringify(v.scenes);
+  if (refs.scenes.dataset.key !== key) {
+    refs.scenes.dataset.key = key;
+    refs.scenes.replaceChildren(
+      ...v.scenes.map((s) =>
+        h("button", { type: "button", "aria-pressed": String(s.active), onclick: () => api("POST", `/api/scene/${s.id}/recall`) }, s.name),
+      ),
+      h("button", { type: "button", onclick: () => v.glId && api("PUT", `/api/grouped_light/${v.glId}`, { on: false }) }, "Av"),
+    );
+  }
+}
+
+function renderLights() {
+  const grid = $("k-light-grid");
+  const rooms = all("room")
+    .map(lightRoomView)
+    .filter((v) => v.glId)
+    .sort((a, b) => collator.compare(a.name, b.name));
+  const hint = $("k-lys-hint");
+  hint.hidden = rooms.length > 0;
+  hint.textContent = online ? "Fant ingen rom med lys. Sjekk at Hue-broen er tilkoblet." : "Venter på kontakt med serveren …";
+  const ids = rooms.map((r) => r.id);
+  for (const [id, entry] of lightEls) {
+    if (!ids.includes(id)) {
+      entry.el.remove();
+      lightEls.delete(id);
+    }
+  }
+  rooms.forEach((v, i) => {
+    if (!lightEls.has(v.id)) lightEls.set(v.id, createLightEl(v.id));
+    const entry = lightEls.get(v.id);
+    updateLightEl(entry, v);
+    if (grid.children[i] !== entry.el) grid.insertBefore(entry.el, grid.children[i] ?? null);
+  });
+}
+
+$("k-all-off").addEventListener("click", () => {
+  if (confirm("Skru av alt lys i huset?")) api("POST", "/api/all-off");
+});
+
+// ---------- Dørklokke ----------
+
+const RING_SHOW_MS = 3 * 60 * 1000;
+
+function latestRing() {
+  let best = null;
+  for (const b of all("bell_button")) {
+    const t = b.button?.button_report?.updated;
+    if (t && (!best || t > best.time)) best = { time: t, res: b };
+  }
+  return best;
+}
+
+const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
+
+function renderBell() {
+  const ring = latestRing();
+  const today = ring && isToday(ring.time);
+  const text = today ? `Ringte på kl. ${shortTime.format(new Date(ring.time))}` : "Ingen har ringt på i dag";
+  $("k-bell-chip-text").textContent = text;
+  $("k-bell-chip").classList.toggle("rang", Boolean(today));
+  $("k-bell-title").textContent = all("bell_button").length ? text : "Fant ingen dørklokke";
+  document.querySelector(".k-bell-card").classList.toggle("rang", Boolean(today));
+  const details = [];
+  if (ring && !today) details.push(`Sist: ${new Date(ring.time).toLocaleString("nb-NO", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`);
+  const cam = ring && all("camera_motion").find((c) => c.owner?.rid === ring.res.owner?.rid);
+  if (cam) details.push(cam.motion?.motion ? "Bevegelse ved døra nå" : "Ingen bevegelse ved døra nå");
+  $("k-bell-detail").textContent = details.join(" · ");
+}
+
+let audio = null;
+// Nettlesere spiller bare lyd etter at noen har rørt skjermen. Lyden gjøres klar ved første trykk.
+document.addEventListener(
+  "pointerdown",
+  () => {
+    try {
+      audio ??= new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    } catch {
+      audio = null;
+    }
+  },
+  { once: false, passive: true },
+);
+
+function chime() {
+  if (!audio || audio.state !== "running") return;
+  const now = audio.currentTime;
+  for (const [freq, at] of [
+    [784, 0],
+    [659, 0.45],
+    [784, 1.3],
+    [659, 1.75],
+  ]) {
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, now + at);
+    gain.gain.linearRampToValueAtTime(0.35, now + at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + at + 0.9);
+    osc.connect(gain).connect(audio.destination);
+    osc.start(now + at);
+    osc.stop(now + at + 1);
+  }
+}
+
+let ringTimer = null;
+function showRing(time) {
+  const el = $("k-ring");
+  $("k-ring-detail").textContent = `kl. ${shortTime.format(new Date(time))} · se hvem det er i Hue-appen`;
+  el.hidden = false;
+  $("k-ring-close").focus();
+  chime();
+  clearTimeout(ringTimer);
+  ringTimer = setTimeout(() => (el.hidden = true), RING_SHOW_MS);
+}
+$("k-ring-close").addEventListener("click", () => {
+  $("k-ring").hidden = true;
+  clearTimeout(ringTimer);
+});
+
+// ---------- Samlet tegning og kontakt med serveren ----------
+
+let queued = false;
+function render() {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    $("k-offline").hidden = online;
+    renderMusic();
+    renderLights();
+    renderBell();
+  });
+}
+
+function applyEvent(ev) {
+  for (const r of ev.data) {
+    if (ev.type === "delete") byId.delete(r.id);
+    else if (ev.type === "add" || !byId.has(r.id)) byId.set(r.id, structuredClone(r));
+    else deepMerge(byId.get(r.id), r);
+  }
+}
+
+function deepMerge(target, src) {
+  for (const [k, v] of Object.entries(src)) {
+    const t = target[k];
+    if (v && typeof v === "object" && !Array.isArray(v) && t && typeof t === "object" && !Array.isArray(t)) deepMerge(t, v);
+    else target[k] = structuredClone(v);
+  }
+}
+
+function connect() {
+  const es = new EventSource("/api/stream");
+  es.addEventListener("open", () => {
+    online = true;
+    render();
+  });
+  es.addEventListener("error", () => {
+    online = false;
+    render();
+  });
+  es.addEventListener("snapshot", (e) => {
+    const snap = JSON.parse(e.data);
+    byId.clear();
+    for (const r of snap.resources ?? []) byId.set(r.id, r);
+    sonos = snap.sonos ?? null;
+    spotifyOn = Boolean(snap.spotify);
+    online = true;
+    render();
+  });
+  es.addEventListener("sonos", (e) => {
+    sonos = JSON.parse(e.data);
+    render();
+  });
+  es.addEventListener("hue", (e) => {
+    const events = JSON.parse(e.data);
+    let rang = null;
+    for (const ev of events) {
+      applyEvent(ev);
+      for (const r of ev.data) {
+        if (r.type === "bell_button" && r.button?.button_report?.event === "initial_press") rang = r.button.button_report.updated;
+      }
+    }
+    render();
+    if (rang) showRing(rang);
+  });
+}
+
+connect();
+// Teksten om dørklokka skifter ved midnatt, og «Kobles til …» går ut på tid.
+setInterval(render, 30_000);
