@@ -1118,6 +1118,173 @@ function renderBell(ringingNow = false) {
   }
 }
 
+// ---------- Sonos ----------
+
+let sonos = null; // { available, reason, groups: [...] } fra serveren, eller null når Sonos er slått av
+const sonosEls = new Map(); // gruppe-id -> { el, refs }
+
+const ICONS = {
+  prev: "M19 20 9 12l10-8v16zM5 19V5",
+  next: "m5 4 10 8-10 8V4zM19 5v14",
+  speaker: "M11 5 6 9H2v6h4l5 4V5z",
+};
+
+function icon(d, size = 20) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", size);
+  svg.setAttribute("height", size);
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", d);
+  svg.append(path);
+  return svg;
+}
+
+function playIcon(playing) {
+  const svg = icon(playing ? "M6 4h4v16H6zM14 4h4v16h-4z" : "M7 4v16l13-8z", 26);
+  svg.setAttribute("fill", "currentColor");
+  svg.setAttribute("stroke", "none");
+  return svg;
+}
+
+const sonosUrl = (kind, id, action) => `/api/sonos/${kind}/${encodeURIComponent(id)}/${action}`;
+
+function volumeSlider(label, onValue) {
+  const input = h("input", { type: "range", class: "dim", min: 0, max: 100, step: 1, "aria-label": label });
+  const out = h("output", { class: "vol-out" });
+  const send = throttled(250, (v) => onValue(v));
+  input.addEventListener("pointerdown", () => (input.dataset.drag = "1"));
+  input.addEventListener("change", () => delete input.dataset.drag);
+  input.addEventListener("input", () => {
+    out.textContent = input.value;
+    input.style.setProperty("--fill", `${input.value}%`);
+    send(Number(input.value));
+  });
+  return { input, out };
+}
+
+function setSlider(s, value) {
+  if (s.input.dataset.drag || document.activeElement === s.input) return;
+  s.input.value = value;
+  s.out.textContent = value;
+  s.input.style.setProperty("--fill", `${value}%`);
+}
+
+function createSonosEl(id) {
+  const g = () => sonos?.groups.find((x) => x.id === id);
+  const art = h("div", { class: "np-art", "aria-hidden": "true" });
+  const title = h("strong", { class: "np-title" });
+  const artist = h("span", { class: "np-artist" });
+  const name = h("h3", {});
+  const state = h("span", { class: "meta" });
+  const btn = (label, d, action) =>
+    h("button", { type: "button", class: "np-btn", "aria-label": label, onclick: () => api("POST", sonosUrl("group", id, action)) }, icon(d, 22));
+  const play = h("button", {
+    type: "button",
+    class: "np-play",
+    onclick: () => {
+      const grp = g();
+      if (!grp) return;
+      const playing = grp.state === "playing" || grp.state === "transitioning";
+      grp.state = playing ? "paused" : "playing"; // vises med en gang, rettes av neste oppdatering
+      renderSonos();
+      api("POST", sonosUrl("group", id, playing ? "pause" : "play"));
+    },
+  });
+  const mute = h("button", {
+    type: "button",
+    class: "np-btn small-btn",
+    onclick: () => {
+      const grp = g();
+      if (grp) api("PUT", sonosUrl("group", id, "volume"), { mute: !grp.muted });
+    },
+  });
+  const vol = volumeSlider("Volum", (v) => api("PUT", sonosUrl("group", id, "volume"), { volume: v }));
+  const memberList = h("div", { class: "np-members" });
+  const members = h("details", { class: "more np-more" }, h("summary", {}, "Volum per rom"), memberList);
+  const memberEls = new Map();
+
+  const el = h(
+    "article",
+    { class: "np" },
+    h("div", { class: "room-head" }, name, state),
+    h("div", { class: "np-track" }, art, h("div", { class: "np-text" }, title, artist)),
+    h("div", { class: "np-controls" }, btn("Forrige", ICONS.prev, "previous"), play, btn("Neste", ICONS.next, "next")),
+    h("div", { class: "np-vol" }, mute, vol.input, vol.out),
+    members,
+  );
+  return { el, refs: { art, title, artist, name, state, play, mute, vol, members, memberList, memberEls } };
+}
+
+const STATE_TEXT = { playing: "Spiller", paused: "Pause", stopped: "Stoppet", transitioning: "Starter …" };
+
+function updateSonosEl(entry, g) {
+  const r = entry.refs;
+  const playing = g.state === "playing" || g.state === "transitioning";
+  entry.el.classList.toggle("off", !playing);
+  r.name.textContent = g.name;
+  r.state.textContent = STATE_TEXT[g.state] ?? "";
+  const t = g.track;
+  r.title.textContent = t?.title || "Ingenting valgt";
+  r.artist.textContent = t ? [t.artist, t.source].filter(Boolean).join(" · ") : "Velg musikk i Sonos-appen";
+  if ((r.art.dataset.src ?? "") !== (t?.art ?? "")) {
+    r.art.dataset.src = t?.art ?? "";
+    r.art.replaceChildren();
+    if (t?.art) {
+      const img = h("img", { src: t.art, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+      img.addEventListener("error", () => img.remove());
+      r.art.append(img);
+    }
+  }
+  r.play.replaceChildren(playIcon(playing));
+  r.play.setAttribute("aria-label", playing ? "Pause" : "Spill");
+  r.mute.replaceChildren(icon(g.muted ? "M11 5 6 9H2v6h4l5 4V5zM22 9l-6 6M16 9l6 6" : "M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7", 20));
+  r.mute.setAttribute("aria-label", g.muted ? "Slå på lyden" : "Demp");
+  r.mute.setAttribute("aria-pressed", String(g.muted));
+  setSlider(r.vol, g.volume);
+
+  r.members.hidden = g.members.length < 2;
+  for (const [uuid, m] of r.memberEls) if (!g.members.some((x) => x.uuid === uuid)) { m.row.remove(); r.memberEls.delete(uuid); }
+  for (const m of g.members) {
+    let row = r.memberEls.get(m.uuid);
+    if (!row) {
+      const label = h("span", { class: "np-member-name" });
+      const s = volumeSlider(`Volum ${m.name}`, (v) => api("PUT", sonosUrl("player", m.uuid, "volume"), { volume: v }));
+      row = { row: h("div", { class: "np-member" }, label, s.input, s.out), label, s };
+      r.memberEls.set(m.uuid, row);
+    }
+    row.label.textContent = m.muted ? `${m.name} (dempet)` : m.name;
+    setSlider(row.s, m.volume);
+    r.memberList.append(row.row); // holder rekkefølgen lik gruppens
+  }
+}
+
+function renderSonos() {
+  const section = document.getElementById("music");
+  section.hidden = !sonos;
+  if (!sonos) return;
+  const hint = document.getElementById("music-hint");
+  hint.hidden = !sonos.reason;
+  hint.textContent = sonos.reason;
+  const groups = sonos.groups ?? [];
+  const speakers = groups.reduce((n, g) => n + g.members.length, 0);
+  document.getElementById("music-count").textContent = groups.length ? `${speakers} høyttalere` : "";
+  const grid = document.getElementById("music-groups");
+  for (const [id, entry] of sonosEls) if (!groups.some((g) => g.id === id)) { entry.el.remove(); sonosEls.delete(id); }
+  for (const g of groups) {
+    let entry = sonosEls.get(g.id);
+    if (!entry) sonosEls.set(g.id, (entry = createSonosEl(g.id)));
+    updateSonosEl(entry, g);
+    grid.append(entry.el);
+  }
+}
+
 // ---------- Samlet tegning ----------
 
 let renderQueued = false;
@@ -1133,6 +1300,7 @@ function scheduleRender() {
     renderStatus();
     renderBell();
     renderDetail();
+    renderSonos();
   });
 }
 
@@ -1176,8 +1344,13 @@ function connect() {
     byId.clear();
     for (const r of snap.resources) byId.set(r.id, r);
     bridge = snap.bridge;
+    sonos = snap.sonos ?? null;
     eventItems.length = 0;
     addEvents(snap.recent ?? [], false);
+    scheduleRender();
+  });
+  es.addEventListener("sonos", (e) => {
+    sonos = JSON.parse(e.data);
     scheduleRender();
   });
   es.addEventListener("bridge", (e) => {

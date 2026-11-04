@@ -4,6 +4,7 @@ import { dataDir, type BridgeConfig } from "./config.js";
 import { HueClient, type HueResource } from "./hue-client.js";
 import { ResourceStore } from "./store.js";
 import { startWebServer, type WebServer } from "./server.js";
+import { SonosManager } from "./sonos.js";
 
 const SKIP_KEYS = new Set(["id", "id_v1", "type", "owner", "service_id"]);
 
@@ -90,9 +91,22 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
   await refresh(true);
   await rotateIfLarge(eventLog);
   let web: WebServer | null = null;
+  let sonos: SonosManager | null = null;
+  if (opts.web && process.env.SONOS !== "off") {
+    let lastReason: string | null = null;
+    sonos = new SonosManager((state) => {
+      web?.broadcastSonos(state);
+      if (state.reason !== lastReason) {
+        lastReason = state.reason;
+        if (state.reason) console.log(`${time()}  Sonos: ${state.reason}`);
+        else console.log(`${time()}  Sonos: ${state.groups.flatMap((g) => g.members).length} høyttalere i ${state.groups.length} grupper`);
+      }
+    });
+  }
   if (opts.web) {
-    web = await startWebServer({ port: opts.web.port, client, store });
+    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined });
     console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
+    sonos?.start().catch((err) => console.error("Sonos:", err.message));
   }
   console.log("Lytter på hendelser. Skru på et lys, trykk på en bryter eller ring på døra. Ctrl+C avslutter.");
   console.log("");
@@ -134,6 +148,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
   await new Promise<void>((resolve) => {
     const shutdown = () => {
       stop();
+      sonos?.stop();
       web?.close();
       client.close();
       resolve();

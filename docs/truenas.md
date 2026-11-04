@@ -76,6 +76,25 @@ La loggen eller dashbordet stå åpent og:
 
 Hver handling skal gi en linje i loggen. Hendelsene lagres også i `events.jsonl` i datasettet. Den filen er nyttig å sende meg, for den viser nøyaktig hva dørklokka sender. `config.json` skal du ikke dele.
 
+## Sonos (valgfritt)
+
+Dashbordet kan også styre Sonos-høyttalerne: se hva som spilles i hvert rom, spill, pause, neste og volum. Det bruker høyttalernes lokale API, så du trenger ingen innlogging.
+
+Appen trenger adressen til **én** av høyttalerne. Den forteller selv om alle de andre.
+
+1. Finn adressen i Sonos-appen: **Innstillinger > System > Om systemet mitt**. Der står IP-adressen ved hvert rom. Velg en høyttaler som alltid står på, gjerne en som ikke går på batteri (altså ikke Roam eller Move).
+2. Lag gjerne en DHCP-reservasjon for den i ruteren, slik du gjorde for Hue-broen.
+3. I TrueNAS: **Apps > hue-dashboard > Edit**. Legg til denne linjen under `environment`, rett under `HUE_BRIDGE_IP`:
+
+   ```yaml
+         SONOS_IP: "192.168.1.60"
+   ```
+
+   Bytt ut adressen med den du fant.
+4. Trykk **Save**. Loggen skal vise `Sonos: 5 høyttalere i 3 grupper` (med dine tall), og en ny **Musikk**-seksjon dukker opp øverst i dashbordet.
+
+Appen husker alle høyttalerne den har sett i `sonos.json` i datasettet, så den finner dem igjen selv om én av dem får ny adresse.
+
 ## Oppdatere
 
 Når en ny versjon er flettet inn i `main`, bygger GitHub et nytt image på et par minutter. I TrueNAS går du til **Apps > hue-dashboard > Edit** og trykker **Save**. Med `pull_policy: always` henter den da nyeste image.
@@ -91,3 +110,5 @@ Har [deploy/truenas-compose.yaml](../deploy/truenas-compose.yaml) fått nye linj
 | `EACCES` eller `permission denied` på `/data` | Datasettet mangler Apps-preset. Gi brukeren `apps` skrivetilgang under **Edit Permissions** |
 | Appen får ikke hentet imaget | Sjekk at pakken er offentlig (steg 4) |
 | Dashbordet åpner seg ikke | Sjekk at `ports` står i YAML-en, og at loggen sier `Dashbordet kjører på ...` |
+| `Sonos: Fant ingen Sonos-høyttalere` | Legg til `SONOS_IP` (se Sonos-avsnittet over) |
+| `Sonos: Får ikke kontakt med Sonos på ...` | Sjekk at adressen er riktig og at høyttaleren står på. TrueNAS og høyttalerne må være på samme nett |

@@ -203,3 +203,30 @@ details.more > summary { margin-top: 0; font-size: 12px; }
 .more-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .settings { display: flex; flex-direction: column; gap: 10px; }
 .inline > button { flex-shrink: 0; }
+
+/* ---------- Musikk (Sonos) ---------- */
+.main-col { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.music-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.np { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.np h3 { font-size: 15px; font-weight: 600; flex-grow: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np .meta { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+.np:not(.off) .meta { color: var(--accent); }
+.np-track { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.np-art { width: 64px; height: 64px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border-2); flex-shrink: 0; overflow: hidden; }
+.np-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.np-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.np-title { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-artist { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np.off .np-title { color: var(--text-2); }
+.np-controls { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.np-btn { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+.np-btn:hover { border-color: #4A5160; }
+.np-btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.np-play { width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.np-play:hover { background: #FFC968; }
+.np-vol, .np-member { display: flex; align-items: center; gap: 10px; }
+.vol-out { font-size: 13px; color: var(--text-2); width: 28px; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.np-members { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }
+.np-member-name { font-size: 13px; color: var(--text-2); width: 110px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-more { margin-top: -4px; }
+.music .hint { margin-top: 0; }

@@ -11,5 +11,6 @@ services:
     environment:
       TZ: Europe/Oslo
       HUE_BRIDGE_IP: "192.168.1.50"   # ENDRE: broens faste IP-adresse
+      SONOS_IP: "192.168.1.60"        # ENDRE: IP-adressen til én Sonos-høyttaler (fjern linjen hvis du ikke har Sonos)
     volumes:
       - /mnt/tank/apps/hue-dashboard:/data   # ENDRE: stien til datasettet ditt
