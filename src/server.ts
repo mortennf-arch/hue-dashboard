@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HueClient, HueEvent } from "./hue-client.js";
 import type { ResourceStore } from "./store.js";
+import type { SonosManager, SonosState } from "./sonos.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -35,6 +36,7 @@ const RESOURCE_RULES: Record<string, { methods: string[]; fields: string[] }> = 
 export interface WebServer {
   broadcastEvents(events: HueEvent[]): void;
   broadcastSnapshot(): void;
+  broadcastSonos(state: SonosState): void;
   setBridgeStatus(connected: boolean, reason?: string): void;
   close(): void;
 }
@@ -81,15 +83,17 @@ export async function startWebServer(opts: {
   port: number;
   client: HueClient;
   store: ResourceStore;
+  sonos?: SonosManager;
 }): Promise<WebServer> {
-  const { client, store } = opts;
+  const { client, store, sonos } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
+  const sonosThrottle = new Throttle(250);
   let bridge = { connected: true, reason: "" };
   // De siste hendelsene, slik at et nyåpnet dashbord har noe i loggen med en gang.
   const recent: HueEvent[] = [];
-  const snapshot = () => ({ bridge, resources: store.all(), recent });
+  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null });
 
   const send = (res: http.ServerResponse, event: string, data: unknown) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -208,6 +212,32 @@ export async function startWebServer(opts: {
       return json(res, 200, { ok: true });
     }
 
+    // Sonos: avspilling for et rom (en gruppe) og volum for gruppen eller én høyttaler.
+    const sonosCmd = url.pathname.match(/^\/api\/sonos\/(group|player)\/([^/]+)\/([a-z]+)$/);
+    if (sonosCmd) {
+      if (!sonos) return json(res, 404, { error: "Sonos er ikke satt opp" });
+      const [, kind, rawId, action] = sonosCmd;
+      const id = decodeURIComponent(rawId);
+      const exists = kind === "group" ? sonos.hasGroup(id) : sonos.hasPlayer(id);
+      if (!exists) return json(res, 404, { error: kind === "group" ? "Fant ikke rommet" : "Fant ikke høyttaleren" });
+      if (req.method === "POST" && kind === "group" && ["play", "pause", "next", "previous"].includes(action)) {
+        await sonos.transport(id, action as "play" | "pause" | "next" | "previous");
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "PUT" && action === "volume") {
+        const body = await readBody(req);
+        const cmd: { volume?: number; mute?: boolean } = {};
+        if (typeof body.volume === "number" && Number.isFinite(body.volume)) cmd.volume = Math.min(100, Math.max(0, Math.round(body.volume)));
+        if (typeof body.mute === "boolean") cmd.mute = body.mute;
+        if (!Object.keys(cmd).length) return json(res, 400, { error: "Send volume (0–100) eller mute (true/false)" });
+        sonosThrottle.submit(`${kind}/${id}`, cmd, (b) =>
+          kind === "group" ? sonos.setGroupVolume(id, b as typeof cmd) : sonos.setPlayerVolume(id, b as typeof cmd),
+        );
+        return json(res, 202, { ok: true });
+      }
+      return json(res, 405, { error: "Ikke tillatt" });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/all-off") {
       // grouped_light som eies av bridge_home er «hele huset».
       const home = store.all().find((r) => r.type === "grouped_light" && r.owner?.rtype === "bridge_home");
@@ -266,6 +296,7 @@ export async function startWebServer(opts: {
       broadcast("hue", events);
     },
     broadcastSnapshot: () => broadcast("snapshot", snapshot()),
+    broadcastSonos: (state) => broadcast("sonos", state),
     setBridgeStatus: (connected, reason = "") => {
       if (bridge.connected === connected && bridge.reason === reason) return;
       bridge = { connected, reason };
@@ -275,6 +306,7 @@ export async function startWebServer(opts: {
       clearInterval(ping);
       groupThrottle.close();
       lightThrottle.close();
+      sonosThrottle.close();
       for (const res of clients) res.end();
       server.close();
     },

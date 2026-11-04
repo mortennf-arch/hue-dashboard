@@ -38,6 +38,7 @@ I dashbordet:
 - **Sikkerhet**: dørklokke, kamerabevegelse, ringeklokka inne og eventuelle dør- og vindussensorer.
 - **Hendelser**: de siste 100 hendelsene i klartekst.
 - **Helse**: lave batterier og enheter som ikke svarer.
+- **Musikk (Sonos)**: hva som spilles i hvert rom eller hver gruppe, med albumcover, spill/pause, forrige/neste, volum og demping, og volum per rom når flere rom spiller sammen. Krever `SONOS_IP`, se [docs/truenas.md](docs/truenas.md#sonos-valgfritt).
 
 Alt du endrer lagres i broen, så det vises også i Hue-appen. Sletting spør alltid først.
 
@@ -54,6 +55,7 @@ Alt lagres i mappen `data/` (eller `/data` i Docker):
 | `config.json` | Broens IP, API-nøkkel og sertifikat-fingeravtrykk | **Nei**, nøkkelen gir full styring av lysene |
 | `resources.json` | Full tilstand fra broen ved siste oppstart | Ja |
 | `events.jsonl` | Alle hendelser, én per linje | Ja |
+| `sonos.json` | Adressene til Sonos-høyttalerne appen har sett | Ja |
 
 `data/` er i `.gitignore` og havner aldri i git.
 

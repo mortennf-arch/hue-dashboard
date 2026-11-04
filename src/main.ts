@@ -11,6 +11,8 @@ Valg:
   --ip <adresse>       Bruk denne IP-adressen til broen i stedet for å lete
 Miljøvariabler:
   HUE_BRIDGE_IP        Samme som --ip
+  SONOS_IP             Adressen til én (eller flere, kommaseparert) Sonos-høyttaler. Uten den letes det på nettet
+  SONOS                Sett til «off» for å skru av Sonos-delen
   PORT                 Porten dashbordet svarer på (standard: 8095)
   DATA_DIR             Hvor config.json og logger lagres (standard: ./data)
   PAIR_TIMEOUT_S       Hvor lenge paringen venter på knappetrykk. 0 = for alltid (standard: 60)`;
