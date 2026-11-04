@@ -120,7 +120,16 @@ En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokke
 - **Lys:** av/på, lysstyrke og scener for hvert Hue-rom.
 - **Dørklokke:** når noen ringer på, dekker et varsel hele skjermen med en lyd, uansett hvilken fane som er åpen.
 
-På et Android-nettbrett passer appen **Fully Kiosk Browser** godt. Sett «Start URL» til adressen over, og slå på «Keep Screen On» og fullskjerm. Lyden ved ringing virker etter at noen har trykket på skjermen én gang etter at siden er lastet. I Fully Kiosk kan du også slå på «Autoplay Videos/Audio» under «Web Content Settings».
+**Oppsett på et Android-nettbrett, uten ekstra apper:**
+
+1. Åpne adressen i Chrome og velg ⋮ > **Legg til på startsiden**. Da får du et eget ikon for kjøkkenvisningen.
+2. Siden går over i fullskjerm første gang noen trykker på den, og igjen etter at den er lastet på nytt.
+3. Hold skjermen på: Innstillinger > Om nettbrettet, trykk 7 ganger på «Byggnummer», og slå så på «Hold skjermen på» under Utvikleralternativer. Det virker så lenge nettbrettet lader.
+4. Vil du at nettbrettet bare skal vise denne siden, kan du bruke «Skjermfesting» (finnes under Sikkerhet i innstillingene).
+
+Alternativet er appen Fully Kiosk Browser, der grunnversjonen er gratis.
+
+Lyden ved ringing virker etter at noen har trykket på skjermen én gang etter at siden er lastet.
 
 ## Oppdatere
 
