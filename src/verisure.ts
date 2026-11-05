@@ -334,62 +334,6 @@ export class VerisureClient {
     this.history.record(state.climate ?? []).catch((err) => console.error("Verisure: klarte ikke å lagre målinger:", err.message));
   }
 
-  /**
-   * Feilsøking: leter etter spørringen Verisure-appen bruker for klimagrafer. Introspeksjon er skrudd av hos
-   * Verisure, men feil feltnavn gir «Did you mean ...?». Hver gjetning gir én linje: feilmeldingen, eller
-   * starten på svaret hvis den virket. Viser aldri innlogging.
-   */
-  async probe(): Promise<Record<string, string>> {
-    if (!(await this.refreshToken())) await this.login();
-    if (!this.giid) await this.chooseInstallation();
-    const g = this.giid;
-    const inst = (body: string) => `installation(giid: $giid) { ${body} }`;
-    const tries: [string, string][] = [];
-    for (const f of ["climateHistory", "climate", "climates", "climateData", "sensorHistory", "temperatureHistory", "measurements", "statistics", "graph", "deviceHistory", "climateValues"]) {
-      tries.push([`root.${f}`, `${f}`]);
-    }
-    for (const f of ["temperatureHistory", "measurements", "sensorValues", "temperatures", "statistics", "deviceHistory", "charts", "graphs", "devices", "climateDevices", "climateValueHistory", "climateMeasurements"]) {
-      tries.push([`installation.${f}`, inst(f)]);
-    }
-    for (const f of ["history", "values", "temperatureHistory", "humidityHistory", "temperatures", "humidities", "series", "graph", "measurements", "readings", "statistics", "data", "temperatureValues", "climateValues", "chart", "historyValues"]) {
-      tries.push([`climates.${f}`, inst(`climates { ${f} }`)]);
-    }
-    for (const f of ["history", "climateHistory", "values", "measurements"]) {
-      tries.push([`climates.device.${f}`, inst(`climates { device { ${f} } }`)]);
-    }
-    for (const a of ["deviceLabel", "deviceLabels", "filter", "fromDate", "from", "startDate", "period", "interval", "range", "resolution"]) {
-      tries.push([`climates(${a})`, inst(`climates(${a}: "x") { temperatureValue }`)]);
-    }
-    const out: Record<string, string> = {};
-    // Ti om gangen i én forespørsel, slik appen gjør, for ikke å spørre Verisure for ofte.
-    for (let i = 0; i < tries.length; i += 10) {
-      const chunk = tries.slice(i, i + 10);
-      const ops = chunk.map(([, body], j) => {
-        const name = `P${i + j}`;
-        const usesGiid = body.includes("$giid");
-        return { operationName: name, query: `query ${name}${usesGiid ? "($giid: String!)" : ""} { ${body} }`, variables: usesGiid ? { giid: g } : {} };
-      });
-      try {
-        const res = await this.call("POST", "/graphql", { body: ops });
-        let parsed: any;
-        try {
-          parsed = JSON.parse(res.text);
-        } catch {
-          parsed = null;
-        }
-        const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
-        chunk.forEach(([label], j) => {
-          const r = list.length === chunk.length ? list[j] : list[0];
-          const errs = (r?.errors ?? []).map((e: any) => e?.message).filter(Boolean);
-          out[label] = errs.length ? errs.join(" | ") : `OK ${JSON.stringify(r?.data ?? r).slice(0, 400)}`;
-        });
-      } catch (err) {
-        for (const [label] of chunk) out[label] = `feil: ${(err as Error).message}`;
-      }
-    }
-    return out;
-  }
-
   // ---------- Henting med jevne mellomrom ----------
 
   private schedule(ms: number): void {

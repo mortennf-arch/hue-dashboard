@@ -337,11 +337,6 @@ export async function startWebServer(opts: {
         await verisure.validateMfa(code);
         return json(res, 200, { ok: true });
       }
-      if (req.method === "GET" && url.pathname === "/api/verisure/probe") {
-        res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
-        res.end(JSON.stringify(await verisure.probe(), null, 1));
-        return;
-      }
       if (req.method === "GET" && url.pathname === "/api/verisure/history") {
         const hours = Math.min(24 * 400, Math.max(1, Math.round(Number(url.searchParams.get("hours")) || 24)));
         const points = Math.min(500, Math.max(10, Math.round(Number(url.searchParams.get("points")) || 300)));
