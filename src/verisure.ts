@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
+import { ClimateHistory } from "./climate-history.js";
 
 /**
  * Leser alarmstatus, dører/vinduer, lås, temperatur/fukt og hendelsesloggen fra Verisure.
@@ -43,7 +44,7 @@ class VerisureError extends Error {
 const Q = {
   installations: `query fetchAllInstallations($email: String!) { account(email: $email) { installations { giid alias } } }`,
   armState: `query ArmState($giid: String!) { installation(giid: $giid) { armState { type statusType date name changedVia } } }`,
-  doorWindow: `query DoorWindow($giid: String!) { installation(giid: $giid) { doorWindows { device { deviceLabel } type area state wired reportTime } } }`,
+  doorWindow: `query DoorWindow($giid: String!) { installation(giid: $giid) { doorWindows { device { deviceLabel area gui { label } } type area state wired reportTime } } }`,
   climate: `query Climate($giid: String!) { installation(giid: $giid) { climates { device { deviceLabel area gui { label } } humidityEnabled humidityTimestamp humidityValue temperatureTimestamp temperatureValue } } }`,
   smartLock: `query SmartLock($giid: String!) { installation(giid: $giid) { smartLocks { lockStatus doorState lockMethod eventTime device { deviceLabel area } user { name } } } }`,
   smartPlug: `query SmartPlug($giid: String!) { installation(giid: $giid) { smartplugs { device { deviceLabel area } currentState } } }`,
@@ -63,6 +64,7 @@ export class VerisureClient {
   private stopped = false;
   private polling = false;
   private backoffMs = 0;
+  readonly history = new ClimateHistory();
   state: VerisureState = {
     status: "connecting",
     reason: "",
@@ -286,7 +288,7 @@ export class VerisureClient {
       arm: arm ? { state: str(arm.statusType), date: arm.date ?? null, name: str(arm.name), changedVia: str(arm.changedVia) } : null,
       doors: (inst(1).doorWindows ?? []).map((d: any) => ({
         id: str(d.device?.deviceLabel),
-        area: str(d.area),
+        area: str(d.area) || str(d.device?.area),
         type: str(d.type),
         open: d.state === "OPEN",
         time: d.reportTime ?? null,
@@ -329,6 +331,7 @@ export class VerisureClient {
       })),
     };
     this.set({ ...state, status: "ok", reason: "", updated: new Date().toISOString() });
+    this.history.record(state.climate ?? []).catch((err) => console.error("Verisure: klarte ikke å lagre målinger:", err.message));
   }
 
   // ---------- Henting med jevne mellomrom ----------
@@ -381,6 +384,7 @@ export class VerisureClient {
   async start(): Promise<void> {
     if (!this.configured) return;
     await this.loadCookies();
+    await this.history.load().catch((err) => console.error("Verisure: klarte ikke å lese historikken:", err.message));
     this.poll();
   }
 

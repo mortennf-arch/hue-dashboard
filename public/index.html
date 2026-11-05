@@ -110,6 +110,25 @@
       </div>
     </section>
   </div>
+  <dialog id="climate" aria-labelledby="climate-title">
+    <div class="detail">
+      <header class="detail-head">
+        <h2 id="climate-title"></h2>
+        <div class="grow"></div>
+        <button type="button" class="close" id="climate-close" aria-label="Lukk">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+      <div class="segmented" role="group" aria-label="Periode" id="climate-range">
+        <button type="button" data-hours="24" aria-pressed="true">Døgn</button>
+        <button type="button" data-hours="168" aria-pressed="false">Uke</button>
+        <button type="button" data-hours="720" aria-pressed="false">Måned</button>
+        <button type="button" data-hours="8760" aria-pressed="false">År</button>
+      </div>
+      <div id="climate-charts" class="climate-charts"></div>
+      <p class="vs-updated" id="climate-note"></p>
+    </div>
+  </dialog>
   <dialog id="detail" aria-labelledby="detail-title">
     <div class="detail">
       <header class="detail-head">
