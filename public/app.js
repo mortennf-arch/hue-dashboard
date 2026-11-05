@@ -1528,6 +1528,7 @@ function renderBell(ringingNow = false) {
 
 let spotifyOn = false;
 let sonos = null; // { available, reason, groups: [...] } fra serveren, eller null når Sonos er slått av
+let sonosAt = 0; // da siste Sonos-tilstand kom, for å regne ut hvor langt sangen har kommet
 const sonosEls = new Map(); // gruppe-id -> { el, refs }
 
 const ICONS = {
@@ -1613,6 +1614,29 @@ function createSonosEl(id) {
     },
   });
   const vol = volumeSlider("Volum", (v) => api("PUT", sonosUrl("group", id, "volume"), { volume: v }));
+
+  // Fremdriftslinjen: dra for å hoppe i sangen. Mens man drar, og rett etter, holdes den nye plassen.
+  const pos = h("span", { class: "np-time" });
+  const dur = h("span", { class: "np-time" });
+  const seek = h("input", { type: "range", class: "dim np-seek", min: 0, max: 100, step: 1, value: 0, "aria-label": "Hopp i sangen" });
+  const progress = h("div", { class: "np-progress" }, pos, seek, dur);
+  const entryRef = { hold: null };
+  seek.addEventListener("pointerdown", () => (entryRef.hold = { value: Number(seek.value), until: Infinity }));
+  seek.addEventListener("input", () => {
+    entryRef.hold = { value: Number(seek.value), until: Infinity };
+    renderProgressOf(sonosEls.get(id), g());
+  });
+  seek.addEventListener("change", () => {
+    const value = Number(seek.value);
+    entryRef.hold = { value, until: Date.now() + 4000 };
+    api("POST", sonosUrl("group", id, "seek"), { position: value });
+  });
+
+  // Resten av køen. Et trykk på en sang hopper dit.
+  const queueList = h("ol", { class: "np-queue" });
+  const queueSum = h("summary", {}, "Neste i køen");
+  const queue = h("details", { class: "more np-more" }, queueSum, queueList);
+
   const memberList = h("div", { class: "np-members" });
   const members = h("details", { class: "more np-more" }, h("summary", {}, "Volum per rom"), memberList);
   const memberEls = new Map();
@@ -1622,6 +1646,7 @@ function createSonosEl(id) {
     { class: "np" },
     h("div", { class: "room-head" }, name, state),
     h("div", { class: "np-track" }, art, h("div", { class: "np-text" }, title, artist)),
+    progress,
     h("div", { class: "np-controls" }, btn("Forrige", ICONS.prev, "previous"), play, btn("Neste", ICONS.next, "next")),
     h("div", { class: "np-vol" }, mute, vol.input, vol.out),
     h(
@@ -1631,8 +1656,77 @@ function createSonosEl(id) {
       h("button", { type: "button", class: "small", onclick: () => g() && openRooms(g().coordinator) }, "Rom i gruppen"),
     ),
     members,
+    queue,
   );
-  return { el, refs: { art, title, artist, name, state, play, mute, vol, members, memberList, memberEls } };
+  return { el, seekRef: entryRef, refs: { art, title, artist, name, state, play, mute, vol, members, memberList, memberEls, progress, pos, dur, seek, queue, queueSum, queueList } };
+}
+
+const fmtDur = (sec) => {
+  const t = Math.max(0, Math.floor(sec));
+  const hh = Math.floor(t / 3600);
+  const mm = Math.floor((t % 3600) / 60);
+  const ss = String(t % 60).padStart(2, "0");
+  return hh ? `${hh}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
+};
+
+function renderProgressOf(entry, g) {
+  if (!entry || !g) return;
+  const r = entry.refs;
+  const t = g.track;
+  r.progress.hidden = !t?.duration;
+  if (!t?.duration) return;
+  let pos = Math.min(t.duration, t.position + (g.state === "playing" ? (Date.now() - sonosAt) / 1000 : 0));
+  const hold = entry.seekRef.hold;
+  if (hold && hold.until !== Infinity && Math.abs(pos - hold.value) < 3) entry.seekRef.hold = null;
+  else if (hold && (hold.until === Infinity || Date.now() < hold.until)) pos = hold.value;
+  else entry.seekRef.hold = null;
+  r.seek.max = String(t.duration);
+  r.seek.value = String(Math.round(pos));
+  r.seek.style.setProperty("--fill", `${(pos / t.duration) * 100}%`);
+  r.seek.setAttribute("aria-valuetext", `${fmtDur(pos)} av ${fmtDur(t.duration)}`);
+  r.pos.textContent = fmtDur(pos);
+  r.dur.textContent = fmtDur(t.duration);
+}
+
+setInterval(() => {
+  if (tab !== "musikk" || document.hidden || !sonos) return;
+  for (const g of sonos.groups ?? []) renderProgressOf(sonosEls.get(g.id), g);
+}, 1000);
+
+function renderQueueOf(entry, g) {
+  const r = entry.refs;
+  const items = g.upNext ?? [];
+  r.queue.hidden = !items.length;
+  r.queueSum.textContent = `Neste i køen (${items.length}${items.length >= 100 ? "+" : ""})`;
+  const key = JSON.stringify(items);
+  if (r.queueList.dataset.key === key) return;
+  r.queueList.dataset.key = key;
+  r.queueList.replaceChildren(
+    ...items.map((it) => {
+      const art = h("span", { class: "row-art mini", "aria-hidden": "true" });
+      if (it.art) {
+        const img = h("img", { src: it.art, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+        img.addEventListener("error", () => img.remove());
+        art.append(img);
+      }
+      return h(
+        "li",
+        {},
+        h(
+          "button",
+          {
+            type: "button",
+            class: "queue-item",
+            title: "Spill denne",
+            "aria-label": `Spill ${it.title}${it.artist ? ` av ${it.artist}` : ""}`,
+            onclick: () => api("POST", sonosUrl("group", g.id, "track"), { number: it.number }),
+          },
+          art,
+          h("span", { class: "row-text" }, h("strong", {}, it.title), it.artist ? h("span", {}, it.artist) : null),
+        ),
+      );
+    }),
+  );
 }
 
 const STATE_TEXT = { playing: "Spiller", paused: "Pause", stopped: "Stoppet", transitioning: "Starter …" };
@@ -1661,6 +1755,8 @@ function updateSonosEl(entry, g) {
   r.mute.setAttribute("aria-label", g.muted ? "Slå på lyden" : "Demp");
   r.mute.setAttribute("aria-pressed", String(g.muted));
   setSlider(r.vol, g.volume);
+  renderProgressOf(entry, g);
+  renderQueueOf(entry, g);
 
   r.members.hidden = g.members.length < 2;
   for (const [uuid, m] of r.memberEls) if (!g.members.some((x) => x.uuid === uuid)) { m.row.remove(); r.memberEls.delete(uuid); }
@@ -1705,6 +1801,7 @@ const groupOf = (coordinator) => sonos?.groups.find((g) => g.coordinator === coo
 
 function openFavorites(coordinator) {
   favFor = coordinator;
+  if (savedResults) backToSearch();
   renderFavorites();
   const box = document.getElementById("spotify-box");
   box.hidden = !spotifyOn;
@@ -1782,9 +1879,140 @@ function renderAccounts() {
   );
 }
 
+// ---------- Spotify-søk med filter og artistside (som på kjøkkennettbrettet) ----------
+
+const TYPE_NAME = { artist: "Artist", track: "Sang", album: "Album", playlist: "Spilleliste" };
+const SECTIONS = [
+  ["track", "Sanger"],
+  ["artist", "Artister"],
+  ["album", "Album"],
+  ["playlist", "Spillelister"],
+];
+let searchFilter = "";
 let searchSeq = 0;
-async function runSpotifySearch(q) {
+let searchOffset = 0;
+let savedResults = null; // søketreffene som var der før artistsiden ble åpnet
+
+const playHit = (r, extra = {}) => (grp) => api("POST", sonosUrl("group", grp.id, "spotify"), { type: r.type, id: r.id, title: r.title, account: currentAccount()?.sn, ...extra });
+
+function artBox(cls, url) {
+  const box = h("span", { class: cls, "aria-hidden": "true" });
+  if (url) {
+    const img = h("img", { src: url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+    img.addEventListener("error", () => img.remove());
+    box.append(img);
+  }
+  return box;
+}
+
+/** Spiller i gruppen dialogen er åpnet for, og lukker dialogen når det gikk. */
+async function playFromDialog(btn, play) {
+  const grp = groupOf(favFor);
+  if (!grp) return;
+  btn.disabled = true;
+  const ok = await play(grp);
+  btn.disabled = false;
+  if (ok) document.getElementById("sonos-fav").close();
+}
+
+function hitTile(r) {
+  if (r.type !== "artist") return musicTile(r.title, r.subtitle, r.art, playHit(r));
+  // En artist åpner artistsiden.
+  return h(
+    "button",
+    { type: "button", class: "fav", onclick: () => showArtist(r.id) },
+    artBox("fav-art round", r.art),
+    h("strong", {}, r.title),
+    h("span", {}, "Artist"),
+  );
+}
+
+/** En sang som en rad med lite bilde. */
+function trackRow(r, num, play = playHit(r)) {
+  const btn = h(
+    "button",
+    { type: "button", class: "row", onclick: () => playFromDialog(btn, play) },
+    num ? h("span", { class: "row-num" }, String(num)) : null,
+    artBox("row-art", r.art),
+    h("span", { class: "row-text" }, h("strong", {}, r.title), h("span", {}, r.subtitle)),
+  );
+  return btn;
+}
+
+const hitsOf = (type, hits) => (type === "track" ? h("div", { class: "rows" }, hits.map((r) => trackRow(r))) : h("div", { class: "fav-grid" }, hits.map(hitTile)));
+
+function topHit(r) {
+  const btn = h(
+    "button",
+    { type: "button", class: "top-hit", onclick: () => (r.type === "artist" ? showArtist(r.id) : playFromDialog(btn, playHit(r))) },
+    artBox(`top-art${r.type === "artist" ? " round" : ""}`, r.art),
+    h(
+      "span",
+      { class: "row-text" },
+      h("small", {}, `Beste treff · ${TYPE_NAME[r.type]}`),
+      h("strong", {}, r.title),
+      h("span", {}, r.type === "artist" ? "Se sanger, album og artistradio" : r.subtitle),
+    ),
+  );
+  return btn;
+}
+
+const section = (label, body, action) => h("section", { class: "result-section" }, h("div", { class: "result-head" }, h("h3", {}, label), action ?? null), body);
+
+function backToSearch() {
+  const list = document.getElementById("spotify-results");
+  document.getElementById("spotify-filters").hidden = false;
+  if (savedResults) list.replaceChildren(...savedResults);
+  savedResults = null;
+}
+
+async function showArtist(id) {
+  const list = document.getElementById("spotify-results");
+  const hint = document.getElementById("spotify-hint");
+  if (!savedResults) savedResults = [...list.childNodes];
+  document.getElementById("spotify-filters").hidden = true;
+  const back = h("button", { type: "button", class: "small back", onclick: backToSearch }, "‹ Tilbake til søket");
+  list.replaceChildren(back);
+  hint.hidden = false;
+  hint.textContent = "Henter artisten …";
   const seq = ++searchSeq;
+  try {
+    const res = await fetch(`/api/spotify/artist/${encodeURIComponent(id)}`);
+    const data = await res.json().catch(() => ({}));
+    if (seq !== searchSeq) return;
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    hint.hidden = true;
+    const a = data.artist;
+    const radio = h("button", { type: "button", class: "primary", onclick: () => playFromDialog(radio, playHit(a)) }, "Spill artistradio");
+    const parts = [back, h("div", { class: "artist-head" }, artBox("top-art round", a.art), h("div", {}, h("h3", {}, a.title), radio))];
+    const top = data.topTracks ?? [];
+    // Sangen spilles, og resten av listen legges i køen etter den.
+    if (top.length) {
+      const rows = top.map((t, i) => trackRow(t, i + 1, playHit(t, { then: top.slice(i + 1).map((x) => ({ id: x.id, title: x.title })) })));
+      parts.push(section("Populære sanger", h("div", { class: "rows" }, rows)));
+    }
+    if (data.thisIs) parts.push(section(`This Is ${a.title}`, h("div", { class: "fav-grid" }, hitTile(data.thisIs))));
+    if (data.albums?.length) parts.push(section("Album og singler", h("div", { class: "fav-grid" }, data.albums.map(hitTile))));
+    if (data.appearsOn?.length) parts.push(section("Med på (featuring)", hitsOf(data.appearsOn[0].type, data.appearsOn)));
+    list.replaceChildren(...parts);
+  } catch (err) {
+    if (seq !== searchSeq) return;
+    hint.textContent = `Fikk ikke hentet artisten: ${err.message}`;
+  }
+}
+
+function setFilter(type) {
+  searchFilter = type;
+  for (const b of document.querySelectorAll("#spotify-filters button")) b.setAttribute("aria-pressed", String(b.dataset.filter === type));
+  runSpotifySearch(document.getElementById("spotify-q").value);
+}
+
+async function runSpotifySearch(q, more = false) {
+  const seq = ++searchSeq;
+  if (savedResults && !more) {
+    savedResults = null;
+    document.getElementById("spotify-filters").hidden = false;
+  }
   const hint = document.getElementById("spotify-hint");
   const list = document.getElementById("spotify-results");
   if (!q.trim()) {
@@ -1792,25 +2020,48 @@ async function runSpotifySearch(q) {
     list.replaceChildren();
     return;
   }
-  hint.hidden = false;
-  hint.textContent = "Søker …";
+  if (!more) {
+    searchOffset = 0;
+    hint.hidden = false;
+    hint.textContent = "Søker …";
+  }
   try {
-    const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`);
+    const params = new URLSearchParams({ q });
+    if (searchFilter) params.set("type", searchFilter);
+    if (more) params.set("offset", String(searchOffset));
+    const res = await fetch(`/api/spotify/search?${params}`);
     const data = await res.json().catch(() => ({}));
     if (seq !== searchSeq) return; // et nyere søk er på vei
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
     const hits = data.results ?? [];
-    hint.textContent = hits.length ? "" : "Fant ingenting. Prøv et annet ord.";
-    hint.hidden = Boolean(hits.length);
-    list.replaceChildren(
-      ...hits.map((r) =>
-        musicTile(r.title, r.subtitle, r.art, (grp) =>
-          api("POST", sonosUrl("group", grp.id, "spotify"), { type: r.type, id: r.id, title: r.title, account: currentAccount()?.sn }),
-        ),
-      ),
-    );
+    list.querySelector(".more-btn")?.remove();
+
+    if (searchFilter) {
+      // Én type: flere treff, og «Vis flere» henter neste side.
+      searchOffset += hits.length;
+      if (!more) list.replaceChildren(hitsOf(searchFilter, hits));
+      else list.firstElementChild?.append(...(searchFilter === "track" ? hits.map((r) => trackRow(r)) : hits.map(hitTile)));
+      hint.hidden = searchOffset > 0;
+      hint.textContent = "Fant ingenting. Prøv et annet ord.";
+      if (data.more && hits.length) list.append(h("button", { type: "button", class: "small more-btn", onclick: () => runSpotifySearch(q, true) }, "Vis flere"));
+      return;
+    }
+
+    // Alt: beste treff øverst, så noen få av hver type under hver sin overskrift.
+    const top = data.top;
+    const same = (a, b) => a && b && a.type === b.type && a.id === b.id;
+    const parts = [];
+    if (top) parts.push(topHit(top));
+    for (const [type, label] of SECTIONS) {
+      const of = hits.filter((r) => r.type === type && !same(r, top)).slice(0, 4);
+      if (of.length) parts.push(section(label, hitsOf(type, of), h("button", { type: "button", class: "link", onclick: () => setFilter(type) }, "Vis alle")));
+    }
+    hint.hidden = parts.length > 0;
+    hint.textContent = "Fant ingenting. Prøv et annet ord.";
+    list.replaceChildren(...parts);
   } catch (err) {
     if (seq !== searchSeq) return;
+    hint.hidden = false;
     hint.textContent = `Søket feilet: ${err.message}`;
   }
 }
@@ -1827,6 +2078,7 @@ async function runSpotifySearch(q) {
     clearTimeout(timer);
     runSpotifySearch(input.value);
   });
+  for (const b of document.querySelectorAll("#spotify-filters button")) b.addEventListener("click", () => setFilter(b.dataset.filter));
   document.getElementById("spotify-account-name").addEventListener("click", () => {
     const acc = currentAccount();
     if (!acc) return;
@@ -2209,6 +2461,7 @@ function connect() {
     for (const r of snap.resources) byId.set(r.id, r);
     bridge = snap.bridge;
     sonos = snap.sonos ?? null;
+    sonosAt = Date.now();
     spotifyOn = Boolean(snap.spotify);
     verisure = snap.verisure ?? null;
     eventItems.length = 0;
@@ -2217,6 +2470,7 @@ function connect() {
   });
   es.addEventListener("sonos", (e) => {
     sonos = JSON.parse(e.data);
+    sonosAt = Date.now();
     scheduleRender();
   });
   es.addEventListener("verisure", (e) => {
