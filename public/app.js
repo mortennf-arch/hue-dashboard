@@ -419,6 +419,17 @@ const EVENT_TEXT = {
   TECHNICAL: "Teknisk melding", WARNING: "Advarsel", LOCK: "Låst", UNLOCK: "Låst opp", CLIMATE: "Temperatur", ANIMAL: "Dyr",
 };
 const ALARM_CATS = new Set(["FIRE", "WATER", "INTRUSION", "SOS"]);
+const DEVICE_TEXT = {
+  SMOKE: "Røykvarsler", WATER: "Vannsensor", VOICEBOX: "Sirene med tale", SIREN: "Sirene", DOORLOCK: "Smartlås", SHOCK: "Vibrasjonssensor",
+  PIR: "Bevegelsessensor", PIR2: "Bevegelsessensor", CAMERAPIR: "Bevegelsessensor med kamera", HOMEPAD: "Kontrollpanel", KEYPAD: "Kodepanel",
+  MAGNETIC: "Dør/vindu", DOORWINDOW: "Dør/vindu", HUMIDITY: "Fuktsensor", HEATDETECTOR: "Varmedetektor", SMARTPLUG: "Smartplugg",
+  HUB: "Sentralenhet", GATEWAY: "Sentralenhet", CAMERA: "Kamera",
+};
+const deviceName = (label) => {
+  if (!label) return "";
+  if (DEVICE_TEXT[label]) return DEVICE_TEXT[label];
+  return /^[A-Z0-9_]+$/.test(label) ? label.charAt(0) + label.slice(1).toLowerCase().replace(/_/g, " ") : label;
+};
 const dayFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "long", day: "numeric", month: "long" });
 const fmtShort = (iso) => (iso ? shortTime.format(new Date(iso)) : "");
 
@@ -426,14 +437,19 @@ const fmtShort = (iso) => (iso ? shortTime.format(new Date(iso)) : "");
 function when(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  const sameDay = d.toDateString() === new Date().toDateString();
-  return sameDay ? `kl. ${shortTime.format(d)}` : `${new Intl.DateTimeFormat("nb-NO", { weekday: "long" }).format(d)} ${shortTime.format(d)}`;
+  if (d.toDateString() === new Date().toDateString()) return `kl. ${shortTime.format(d)}`;
+  // Innen siste uke holder ukedagen. Ellers dato, så «fredag» ikke kan bety forrige uke.
+  const recent = Date.now() - d.getTime() < 6 * 24 * 3600_000;
+  const day = new Intl.DateTimeFormat("nb-NO", recent ? { weekday: "long" } : { day: "numeric", month: "short" }).format(d);
+  return `${day} ${shortTime.format(d)}`;
 }
 
 function vsEventText(e) {
   let text = EVENT_TEXT[e.category] ?? e.category.toLowerCase();
   if (e.category === "ARM" && e.type) text = e.type.includes("HOME") ? "Skallsikret" : "Tilkoblet";
-  const where = e.device && e.area ? `${e.device}, ${e.area}` : e.device || e.area;
+  // For låsen sier «Låst · Ytterdør» nok. Ellers tas enhetstypen med, for eksempel «Røykvarsler, Kjøkken».
+  const device = e.category === "LOCK" || e.category === "UNLOCK" ? "" : deviceName(e.device);
+  const where = device && e.area ? `${device}, ${e.area}` : device || e.area;
   return [text, where, e.value, e.user ? `av ${e.user}` : ""].filter(Boolean).join(" · ");
 }
 
@@ -542,7 +558,7 @@ function renderVerisure() {
   for (const p of verisure.plugs) tiles.push(tile(`${p.area || p.id} (plugg)`, p.on ? "På" : "Av", ""));
   if (tiles.length) parts.push(h("div", { class: "tiles" }, tiles));
 
-  if (verisure.people.length) {
+  if (verisure.people.some((p) => p.home !== null)) {
     parts.push(h("p", { class: "vs-sub" }, "Hvem er hjemme"));
     parts.push(h("ul", { class: "health-list" }, verisure.people.map((p) =>
       h("li", {}, `${p.name} `, h("span", {}, p.home === true ? "hjemme" : p.home === false ? "borte" : "ukjent")))));
@@ -551,11 +567,18 @@ function renderVerisure() {
   body.replaceChildren(...parts);
 
   const climate = [...verisure.climate].sort((a, b) => collator.compare(a.area, b.area));
-  document.getElementById("vs-climate").replaceChildren(...climate.map((c) =>
-    h("li", {},
-      h("span", { class: "name" }, c.area || c.id, c.device ? h("small", {}, c.device) : null),
-      h("span", { class: "temp" }, c.temperature == null ? "–" : `${c.temperature.toFixed(1).replace(".", ",")} °C`),
-      h("span", { class: "hum" }, c.humidity == null ? "" : `${Math.round(c.humidity)} %`))));
+  if (verisure.updated !== sparkFor) loadSparks();
+  // Tegner bare listen på nytt når tallene endrer seg, så et trykk ikke forsvinner midt i en Hue-hendelse.
+  const climateKey = `${verisure.updated}|${sparksVersion}`;
+  if (climateKey !== climateListKey) {
+    climateListKey = climateKey;
+    document.getElementById("vs-climate").replaceChildren(...climate.map((c) =>
+    h("li", {}, h("button", { type: "button", class: "climate-row", "aria-label": `Vis graf for ${c.area || c.id}`, onclick: () => openClimate(c) },
+      h("span", { class: "name" }, c.area || c.id, c.device ? h("small", {}, deviceName(c.device)) : null),
+      spark(sparks[c.id]),
+      h("span", { class: "temp" }, c.temperature == null ? "–" : `${fmtNum(c.temperature, 1)} °C`),
+      h("span", { class: "hum" }, c.humidity == null ? "" : `${Math.round(c.humidity)} %`)))));
+  }
 
   const list = document.getElementById("vs-events");
   if (!verisure.events.length) {
@@ -573,6 +596,220 @@ function renderVerisure() {
     items.push(h("li", { class: ALARM_CATS.has(e.category) ? "vs-alarm" : "" }, h("time", { datetime: e.time }, fmtShort(e.time)), h("span", { class: "text" }, vsEventText(e))));
   }
   list.replaceChildren(...items);
+}
+
+// ---------- Grafer for temperatur og fukt ----------
+
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs = {}, ...children) {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) el.setAttribute(k, String(v));
+  for (const c of children.flat()) if (c) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return el;
+}
+const fmtNum = (v, d) => v.toFixed(d).replace(".", ",");
+
+let sparks = {};
+let sparksVersion = 0;
+let sparkFor = null;
+let climateListKey = "";
+async function loadSparks() {
+  sparkFor = verisure?.updated ?? null;
+  try {
+    const res = await fetch("/api/verisure/history?hours=24&points=48");
+    if (!res.ok) return;
+    sparks = (await res.json()).series ?? {};
+    sparksVersion++;
+    scheduleRender();
+  } catch {
+    // Grafene er pynt. Uten dem vises bare tallene.
+  }
+}
+
+/** Liten temperaturkurve for siste døgn, ved siden av tallet. */
+function spark(points) {
+  const pts = (points ?? []).filter((p) => p[1] != null);
+  if (pts.length < 2) return h("span", { class: "spark", "aria-hidden": "true" });
+  const W = 88, H = 28;
+  const t0 = Date.now() - 24 * 3600_000;
+  const vals = pts.map((p) => p[1]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1) (lo -= 0.5), (hi += 0.5);
+  const x = (t) => ((t - t0) / (24 * 3600_000)) * W;
+  const y = (v) => H - 2 - ((v - lo) / (hi - lo)) * (H - 4);
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+  return svg("svg", { class: "spark", viewBox: `0 0 ${W} ${H}`, "aria-hidden": "true" }, svg("path", { d }));
+}
+
+/** Pene skalatrinn: 1, 2 eller 5 ganger en tierpotens. */
+function niceStep(range, count) {
+  const raw = range / Math.max(1, count);
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+
+const hourFmt = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
+const dayShort = new Intl.DateTimeFormat("nb-NO", { weekday: "short" });
+const dateShort = new Intl.DateTimeFormat("nb-NO", { day: "numeric", month: "short" });
+const monthShort = new Intl.DateTimeFormat("nb-NO", { month: "short" });
+const tipFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+/** Tidsakse: ett merke per 3/6 timer, per dag, per uke eller per måned, avhengig av perioden. */
+function timeTicks(from, to, hours) {
+  const ticks = [];
+  const d = new Date(from);
+  if (hours <= 48) {
+    const step = hours <= 24 ? 6 : 12;
+    d.setMinutes(0, 0, 0);
+    d.setHours(Math.ceil(d.getHours() / step) * step);
+    for (; d.getTime() <= to; d.setHours(d.getHours() + step)) ticks.push([d.getTime(), hourFmt.format(d)]);
+  } else if (hours <= 24 * 10) {
+    d.setHours(24, 0, 0, 0);
+    for (; d.getTime() <= to; d.setDate(d.getDate() + 1)) ticks.push([d.getTime(), dayShort.format(d)]);
+  } else if (hours <= 24 * 45) {
+    d.setHours(24, 0, 0, 0);
+    for (; d.getTime() <= to; d.setDate(d.getDate() + 7)) ticks.push([d.getTime(), dateShort.format(d)]);
+  } else {
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    d.setMonth(d.getMonth() + 1);
+    for (; d.getTime() <= to; d.setMonth(d.getMonth() + 1)) ticks.push([d.getTime(), monthShort.format(d)]);
+  }
+  return ticks;
+}
+
+/** Linjediagram for én måling (én serie, én akse), med trådkors og verdi når man peker eller trykker. */
+function lineChart({ points, hours, color, unit, decimals, title, width, current }) {
+  const box = h("div", { class: "chart-box" });
+  const wrap = h("section", { class: "chart" });
+  const pts = points.filter((p) => p[1] != null);
+  wrap.append(h("h3", {}, title, current != null ? h("span", {}, `nå ${fmtNum(current, decimals)} ${unit}`) : null), box);
+  if (pts.length < 2) {
+    box.append(h("p", { class: "chart-empty" }, "Ikke nok målinger ennå. Grafen fylles etter hvert som serveren henter nye tall."));
+    return wrap;
+  }
+  const W = Math.max(280, width), H = 180;
+  const m = { l: 40, r: 10, t: 10, b: 24 };
+  const to = Date.now(), from = to - hours * 3600_000;
+  const vals = pts.map((p) => p[1]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const minSpan = unit === "%" ? 10 : 2;
+  if (hi - lo < minSpan) {
+    const mid = (hi + lo) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+  }
+  const step = niceStep(hi - lo, 4);
+  lo = Math.floor(lo / step) * step;
+  hi = Math.ceil(hi / step) * step;
+  const x = (t) => m.l + ((t - from) / (to - from)) * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+
+  const grid = svg("g", { class: "grid" });
+  const axis = svg("g", { class: "axis" });
+  for (let v = lo; v <= hi + step / 2; v += step) {
+    grid.append(svg("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
+    axis.append(svg("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, fmtNum(v, step < 1 ? 1 : 0)));
+  }
+  for (const [t, label] of timeTicks(from, to, hours)) {
+    const tx = x(t);
+    if (tx < m.l + 12 || tx > W - m.r - 12) continue;
+    axis.append(svg("text", { x: tx, y: H - 6, "text-anchor": "middle" }, label));
+  }
+  // Brudd i linjen der det mangler målinger (for eksempel når serveren var av).
+  const gap = Math.max(3 * 3600_000, ((to - from) / 300) * 4);
+  let d = "";
+  pts.forEach((p, i) => {
+    const jump = i === 0 || p[0] - pts[i - 1][0] > gap;
+    d += `${jump ? "M" : "L"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`;
+  });
+  const cross = svg("line", { class: "cross", y1: m.t, y2: H - m.b, visibility: "hidden" });
+  const dot = svg("circle", { class: "dot", r: 5, fill: color, visibility: "hidden" });
+  const chart = svg("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": `${title}, ${pts.length} målinger` },
+    grid, axis, svg("path", { class: "line", d, stroke: color }), cross, dot,
+    svg("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: H - m.b, fill: "transparent" }));
+  const tip = h("div", { class: "chart-tip", hidden: true });
+  box.append(chart, tip);
+
+  const show = (clientX) => {
+    const r = chart.getBoundingClientRect();
+    const px = ((clientX - r.left) / r.width) * W;
+    const t = from + ((px - m.l) / (W - m.l - m.r)) * (to - from);
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p;
+    const bx = x(best[0]), by = y(best[1]);
+    for (const el of [cross]) (el.setAttribute("x1", bx), el.setAttribute("x2", bx), el.setAttribute("visibility", "visible"));
+    dot.setAttribute("cx", bx);
+    dot.setAttribute("cy", by);
+    dot.setAttribute("visibility", "visible");
+    tip.replaceChildren(h("strong", {}, `${fmtNum(best[1], decimals)} ${unit}`), tipFmt.format(new Date(best[0])));
+    tip.hidden = false;
+    const left = (bx / W) * r.width;
+    tip.style.left = `${Math.min(r.width - 70, Math.max(70, left))}px`;
+    tip.style.top = `${Math.max(0, (by / H) * r.height - 58)}px`;
+  };
+  const hide = () => {
+    cross.setAttribute("visibility", "hidden");
+    dot.setAttribute("visibility", "hidden");
+    tip.hidden = true;
+  };
+  chart.addEventListener("pointermove", (e) => show(e.clientX));
+  chart.addEventListener("pointerdown", (e) => show(e.clientX));
+  chart.addEventListener("pointerleave", hide);
+  return wrap;
+}
+
+let climateOpen = null;
+let climateHours = 24;
+const sinceFmt = new Intl.DateTimeFormat("nb-NO", { day: "numeric", month: "long", year: "numeric" });
+
+async function drawClimate() {
+  const c = climateOpen;
+  if (!c) return;
+  const box = document.getElementById("climate-charts");
+  const note = document.getElementById("climate-note");
+  for (const b of document.querySelectorAll("#climate-range button")) b.setAttribute("aria-pressed", String(Number(b.dataset.hours) === climateHours));
+  let data;
+  try {
+    const res = await fetch(`/api/verisure/history?hours=${climateHours}&points=300&id=${encodeURIComponent(c.id)}`);
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  } catch (err) {
+    box.replaceChildren(h("p", { class: "chart-empty" }, `Klarte ikke å hente historikken: ${err.message}`));
+    return;
+  }
+  if (climateOpen !== c) return;
+  const points = data.series?.[c.id] ?? [];
+  const width = box.clientWidth || 600;
+  const charts = [lineChart({ points, hours: climateHours, color: "#F5B544", unit: "°C", decimals: 1, title: "Temperatur", width, current: c.temperature })];
+  if (c.humidity != null || points.some((p) => p[2] != null)) {
+    charts.push(lineChart({ points: points.map((p) => [p[0], p[2]]), hours: climateHours, color: "#6CA8F0", unit: "%", decimals: 0, title: "Luftfuktighet", width, current: c.humidity }));
+  }
+  box.replaceChildren(...charts);
+  note.textContent = data.since ? `Dashbordet har lagret målinger siden ${sinceFmt.format(new Date(data.since))}. Verisure gir ikke ut eldre historikk.` : "";
+}
+
+function openClimate(c) {
+  climateOpen = c;
+  document.getElementById("climate-title").textContent = [c.area || c.id, deviceName(c.device)].filter(Boolean).join(" · ");
+  document.getElementById("climate-charts").replaceChildren();
+  const dlg = document.getElementById("climate");
+  if (!dlg.open) dlg.showModal();
+  drawClimate();
+}
+
+{
+  const dlg = document.getElementById("climate");
+  document.getElementById("climate-close").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("click", (e) => e.target === dlg && dlg.close());
+  dlg.addEventListener("close", () => (climateOpen = null));
+  for (const b of document.querySelectorAll("#climate-range button")) {
+    b.addEventListener("click", () => {
+      climateHours = Number(b.dataset.hours);
+      drawClimate();
+    });
+  }
 }
 
 // ---------- Detaljvisning for ett rom eller én sone ----------

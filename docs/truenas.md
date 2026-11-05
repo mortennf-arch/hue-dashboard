@@ -129,6 +129,8 @@ Verisure har ikke noe offisielt API, så dette bruker det samme som Verisure-app
 2. Trykk **Save**, og åpne Sikkerhet-fanen. Har kontoen tofaktor, står det «Send kode». Trykk på den, og skriv inn koden du får på SMS. Serveren husker innloggingen i `verisure.json` i datasettet, så du trenger ikke kode igjen.
 3. Loggen viser for eksempel `Verisure «Hjemme»: 3 dør/vindu, 4 temperaturmålere`. Det er enhetene dashbordet fant.
 
+Trykk på et rom under «Temperatur og fukt» for å se grafer for døgnet, uka, måneden eller året. Verisure gir bare ut siste måling, så dashbordet lagrer hver måling selv i `verisure-klima.jsonl` i datasettet. Grafene starter derfor den dagen du slo på Verisure, og blir lengre etter hvert.
+
 Dataene hentes hvert 5. minutt. Verisure sperrer kontoer som spør for ofte, så ikke sett det lavere enn nødvendig (`VERISURE_POLL_S`, minst 60).
 
 ## Kjøkkennettbrett (valgfritt)

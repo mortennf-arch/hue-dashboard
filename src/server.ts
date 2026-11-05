@@ -337,6 +337,12 @@ export async function startWebServer(opts: {
         await verisure.validateMfa(code);
         return json(res, 200, { ok: true });
       }
+      if (req.method === "GET" && url.pathname === "/api/verisure/history") {
+        const hours = Math.min(24 * 400, Math.max(1, Math.round(Number(url.searchParams.get("hours")) || 24)));
+        const points = Math.min(500, Math.max(10, Math.round(Number(url.searchParams.get("points")) || 300)));
+        const id = url.searchParams.get("id") ?? undefined;
+        return json(res, 200, { since: verisure.history.since, series: verisure.history.query(hours, points, id) });
+      }
       if (req.method === "POST" && url.pathname === "/api/verisure/refresh") {
         verisure.poll();
         return json(res, 202, { ok: true });
