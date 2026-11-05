@@ -335,54 +335,56 @@ export class VerisureClient {
   }
 
   /**
-   * Feilsøking: finner ut hvilke spørringer Verisure har for historikk, siden appen viser grafer
-   * men ingen har dokumentert hvordan. Returnerer bare skjemaet og statuskoder, aldri innlogging.
+   * Feilsøking: leter etter spørringen Verisure-appen bruker for klimagrafer. Introspeksjon er skrudd av hos
+   * Verisure, men feil feltnavn gir «Did you mean ...?». Hver gjetning gir én linje: feilmeldingen, eller
+   * starten på svaret hvis den virket. Viser aldri innlogging.
    */
-  async probe(): Promise<Record<string, unknown>> {
+  async probe(): Promise<Record<string, string>> {
     if (!(await this.refreshToken())) await this.login();
     if (!this.giid) await this.chooseInstallation();
-    const out: Record<string, unknown> = {};
-    const raw = async (name: string, query: string, variables: Record<string, unknown> = {}) => {
-      try {
-        const res = await this.call("POST", "/graphql", { body: [{ operationName: name, query, variables }] });
-        // Skjemaet gjøres om til korte linjer som «climates(filter): [Climate]», så svaret blir lett å lese.
-        const fields = (() => {
-          try {
-            const d = (JSON.parse(res.text) as any[])[0]?.data;
-            const list = d?.__type?.fields ?? d?.__schema?.queryType?.fields;
-            if (!Array.isArray(list)) return null;
-            const typeName = (t: any): string => (!t ? "" : t.name ?? (t.kind === "LIST" ? `[${typeName(t.ofType)}]` : typeName(t.ofType)));
-            return list.map((f: any) => `${f.name}(${(f.args ?? []).map((a: any) => a.name).join(", ")}): ${typeName(f.type)}`);
-          } catch {
-            return null;
-          }
-        })();
-        out[name] = fields ? { status: res.status, fields } : { status: res.status, body: res.text.slice(0, 3000) };
-      } catch (err) {
-        out[name] = { error: (err as Error).message };
-      }
-    };
-    const typeQuery = (t: string) =>
-      `query T${t} { __type(name: "${t}") { name fields { name args { name type { name kind ofType { name kind } } } type { name kind ofType { name kind ofType { name } } } } } }`;
-    await raw("TInstallation", typeQuery("Installation"));
-    await raw("TClimate", typeQuery("Climate"));
-    await raw("TQuery", `query TQuery { __schema { queryType { fields { name args { name } } } } }`);
-    // Ukjente felter gir ofte «Did you mean ...?» i feilmeldingen, også når introspeksjon er av.
-    const sensor = this.state.climate[0]?.id ?? "";
-    for (const f of ["climateHistory", "climateValues", "climateGraph", "climateStatistics", "climateSeries", "history", "climateHistories"]) {
-      await raw(`G_${f}`, `query G_${f}($giid: String!) { installation(giid: $giid) { ${f} } }`, { giid: this.giid });
+    const g = this.giid;
+    const inst = (body: string) => `installation(giid: $giid) { ${body} }`;
+    const tries: [string, string][] = [];
+    for (const f of ["climateHistory", "climate", "climates", "climateData", "sensorHistory", "temperatureHistory", "measurements", "statistics", "graph", "deviceHistory", "climateValues"]) {
+      tries.push([`root.${f}`, `${f}`]);
     }
-    await raw("G_climateArgs", `query G_climateArgs($giid: String!) { installation(giid: $giid) { climates(xyz: 1) { device { deviceLabel } } } }`, { giid: this.giid });
-    // Det gamle REST-API-et hadde historikk per sensor.
-    for (const url of [
-      `/xbn/2/installation/${this.giid}/climate/simple/search?deviceLabel=${encodeURIComponent(sensor)}`,
-      `/installation/${this.giid}/climate/simple/search?deviceLabel=${encodeURIComponent(sensor)}`,
-    ]) {
+    for (const f of ["temperatureHistory", "measurements", "sensorValues", "temperatures", "statistics", "deviceHistory", "charts", "graphs", "devices", "climateDevices", "climateValueHistory", "climateMeasurements"]) {
+      tries.push([`installation.${f}`, inst(f)]);
+    }
+    for (const f of ["history", "values", "temperatureHistory", "humidityHistory", "temperatures", "humidities", "series", "graph", "measurements", "readings", "statistics", "data", "temperatureValues", "climateValues", "chart", "historyValues"]) {
+      tries.push([`climates.${f}`, inst(`climates { ${f} }`)]);
+    }
+    for (const f of ["history", "climateHistory", "values", "measurements"]) {
+      tries.push([`climates.device.${f}`, inst(`climates { device { ${f} } }`)]);
+    }
+    for (const a of ["deviceLabel", "deviceLabels", "filter", "fromDate", "from", "startDate", "period", "interval", "range", "resolution"]) {
+      tries.push([`climates(${a})`, inst(`climates(${a}: "x") { temperatureValue }`)]);
+    }
+    const out: Record<string, string> = {};
+    // Ti om gangen i én forespørsel, slik appen gjør, for ikke å spørre Verisure for ofte.
+    for (let i = 0; i < tries.length; i += 10) {
+      const chunk = tries.slice(i, i + 10);
+      const ops = chunk.map(([, body], j) => {
+        const name = `P${i + j}`;
+        const usesGiid = body.includes("$giid");
+        return { operationName: name, query: `query ${name}${usesGiid ? "($giid: String!)" : ""} { ${body} }`, variables: usesGiid ? { giid: g } : {} };
+      });
       try {
-        const res = await this.call("GET", url);
-        out[`REST ${url.replace(this.giid, "GIID")}`] = { status: res.status, body: res.text.slice(0, 1500) };
+        const res = await this.call("POST", "/graphql", { body: ops });
+        let parsed: any;
+        try {
+          parsed = JSON.parse(res.text);
+        } catch {
+          parsed = null;
+        }
+        const list: any[] = Array.isArray(parsed) ? parsed : [parsed];
+        chunk.forEach(([label], j) => {
+          const r = list.length === chunk.length ? list[j] : list[0];
+          const errs = (r?.errors ?? []).map((e: any) => e?.message).filter(Boolean);
+          out[label] = errs.length ? errs.join(" | ") : `OK ${JSON.stringify(r?.data ?? r).slice(0, 400)}`;
+        });
       } catch (err) {
-        out[`REST ${url.replace(this.giid, "GIID")}`] = { error: (err as Error).message };
+        for (const [label] of chunk) out[label] = `feil: ${(err as Error).message}`;
       }
     }
     return out;
