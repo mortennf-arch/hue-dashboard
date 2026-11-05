@@ -76,10 +76,15 @@
 
     <section role="tabpanel" id="panel-idag" aria-labelledby="tab-idag" class="idag-panel" hidden>
       <div class="side">
-        <section class="card wx-now" aria-labelledby="wx-h">
+        <section class="card wx-now" id="wx-card" aria-labelledby="wx-h" hidden>
           <h2 id="wx-h">Været<span id="wx-place"></span></h2>
           <div id="wx-now-body" class="wx-now-body"></div>
           <p class="hint" id="wx-hint" hidden></p>
+        </section>
+        <section class="card bins" id="bins-card" aria-labelledby="bins-h" hidden>
+          <h2 id="bins-h">Søppeltømming</h2>
+          <div id="bins-body" class="bins-body"></div>
+          <p class="hint" id="bins-hint" hidden></p>
         </section>
       </div>
       <div class="side">
@@ -278,7 +283,7 @@
       </div>
     </div>
   </dialog>
-  <script src="weather.js"></script>
+  <script src="idag.js"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

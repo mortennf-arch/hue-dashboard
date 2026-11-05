@@ -1,4 +1,4 @@
-// Felles for dashbordet og kjøkkenvisningen: værsymboler og små formateringer for været fra yr.
+// Felles for dashbordet og kjøkkenvisningen: fanen «I dag» med været fra yr og tømmekalenderen.
 // Symbolene er tegnet her, ut fra symbolkodene til MET (for eksempel «lightrainshowers_day»).
 
 (() => {
@@ -72,4 +72,50 @@
   }
 
   window.Weather = { icon, temp, hour, mm, dayName };
+
+  // ---------- Tømmekalender ----------
+
+  // Navnene kommunen bruker, og farger som skiller dem fra hverandre.
+  const WASTE = [
+    { test: /^rest/i, name: "Restavfall", color: "#9AA3B2" },
+    { test: /^(mat|bio)/i, name: "Matavfall", color: "#C9935A" },
+    { test: /^hage/i, name: "Hageavfall", color: "#4CC38A" },
+    { test: /papp|papir/i, name: "Papp og papir", color: "#6CB4F0" },
+    { test: /glass|metall/i, name: "Glass og metall", color: "#B48EF0" },
+    { test: /plast/i, name: "Plast", color: "#E58FB0" },
+    { test: /juletre/i, name: "Juletre", color: "#2E9B5F" },
+  ];
+
+  function wasteType(raw) {
+    const hit = WASTE.find((w) => w.test.test(raw));
+    return hit ? { name: hit.name, color: hit.color } : { name: raw, color: "#9AA3B2" };
+  }
+
+  const longDate = new Intl.DateTimeFormat("nb-NO", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+
+  /** «I dag», «I morgen» eller «Fredag 6. november». */
+  function pickupDay(date) {
+    const n = dayName(date);
+    if (n === "I dag" || n === "I morgen") return n;
+    const d = longDate.format(new Date(`${date}T12:00:00Z`));
+    return d.charAt(0).toUpperCase() + d.slice(1);
+  }
+
+  /** Neste tømming som er i dag eller i morgen, ellers null. */
+  function soon(pickups) {
+    const p = pickups?.[0];
+    if (!p) return null;
+    const n = dayName(p.date);
+    return n === "I dag" || n === "I morgen" ? { ...p, when: n.toLowerCase() } : null;
+  }
+
+  /** «Restavfall og papp og papir» */
+  function typeList(types) {
+    const names = types.map((t, i) => (i ? wasteType(t).name.toLowerCase() : wasteType(t).name));
+    return names.length > 1 ? `${names.slice(0, -1).join(", ")} og ${names.at(-1)}` : names[0] ?? "";
+  }
+
+  const BIN_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/></svg>';
+
+  window.Waste = { type: wasteType, day: pickupDay, soon, list: typeList, BIN_SVG };
 })();

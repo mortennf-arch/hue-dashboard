@@ -8,6 +8,8 @@ let sonos = null;
 let sonosAt = 0; // da siste Sonos-tilstand kom, for å regne ut hvor langt sangen har kommet
 let spotifyOn = false;
 let online = false;
+let weather = null; // fra /api/weather
+let waste = null; // fra /api/waste
 
 // ---------- Hjelpere ----------
 
@@ -1009,6 +1011,7 @@ function renderBell() {
   const text = today ? `Ringte på kl. ${shortTime.format(new Date(ring.time))}` : "Ingen har ringt på i dag";
   $("k-bell-chip-text").textContent = text;
   $("k-bell-chip").classList.toggle("rang", Boolean(today));
+  syncChips();
   $("k-bell-title").textContent = all("bell_button").length ? text : "Fant ingen dørklokke";
   document.querySelector(".k-bell-card").classList.toggle("rang", Boolean(today));
   const details = [];
@@ -1169,22 +1172,28 @@ setInterval(render, 30_000);
 
 // ---------- I dag: været fra yr ----------
 
-let weather = null;
-
-function renderWeather() {
-  const w = weather;
+function renderIdagTab() {
   const tabBtn = $("tab-idag");
   const had = !tabBtn.hidden;
-  tabBtn.hidden = !w?.configured;
+  tabBtn.hidden = !weather?.configured && !waste?.configured;
   // Fanen kommer først når serveren har svart. Vis den lagrede fanen da.
   if (!had && !tabBtn.hidden && storage("kTab") === "idag" && tab !== "idag") showTab("idag", false);
   if (had && tabBtn.hidden && tab === "idag") showTab("musikk", false);
+}
 
-  const chip = $("k-wx-chip");
-  chip.hidden = !w?.now;
+function renderWeather() {
+  const w = weather;
+  renderIdagTab();
+  $("k-wx-now").hidden = !w?.configured;
+
+  // Fanen viser været nå, slik at temperaturen alltid står øverst.
   if (w?.now) {
-    chip.innerHTML = `${Weather.icon(w.now.symbol, 26)}<strong>${Weather.temp(w.now.temp)}</strong>`;
-    chip.setAttribute("aria-label", `${Weather.temp(w.now.temp)}, ${w.now.text}. Vis været`);
+    $("k-idag-icon").innerHTML = Weather.icon(w.now.symbol, 28);
+    $("k-idag-temp").textContent = Weather.temp(w.now.temp);
+    $("tab-idag").setAttribute("aria-label", `I dag, ${Weather.temp(w.now.temp)} og ${w.now.text.toLowerCase()}`);
+  } else {
+    $("k-idag-temp").textContent = "";
+    $("tab-idag").removeAttribute("aria-label");
   }
   if (!w?.configured) return;
 
@@ -1242,9 +1251,94 @@ async function loadWeather() {
   renderWeather();
 }
 
-$("k-wx-chip").addEventListener("click", () => showTab("idag"));
-loadWeather();
-setInterval(loadWeather, 10 * 60_000);
+// ---------- I dag: tømmekalenderen ----------
+
+/**
+ * Øverst til høyre er det plass til to merker. Tømming i dag eller i morgen vises der. Har ingen ringt på,
+ * viker «Ingen har ringt på i dag» for tømmingen. Har noen ringt på, vises tømmingen kortere.
+ */
+function syncChips() {
+  const chip = $("k-bin-chip");
+  const soon = Waste.soon(waste?.pickups);
+  const bell = $("k-bell-chip");
+  const rang = bell.classList.contains("rang");
+  chip.hidden = !soon;
+  bell.hidden = Boolean(soon) && !rang;
+  // Med to merker blir ringingen kortere: bare klokkeslettet.
+  const ring = latestRing();
+  if (rang && ring) $("k-bell-chip-text").textContent = soon ? `kl. ${shortTime.format(new Date(ring.time))}` : `Ringte på kl. ${shortTime.format(new Date(ring.time))}`;
+  if (!soon) return;
+  const compact = rang;
+  const when = soon.when === "i dag" ? "I dag" : "I morgen";
+  chip.innerHTML = Waste.BIN_SVG;
+  if (compact) {
+    const dots = h("span", { class: "k-bin-dots" }, soon.types.map((t) => {
+      const d = h("span", { class: "k-bin-dot" });
+      d.style.setProperty("--bin", Waste.type(t).color);
+      return d;
+    }));
+    chip.append(dots, h("span", {}, when));
+  } else chip.append(h("span", {}, `${Waste.list(soon.types)} ${soon.when}`));
+  chip.classList.toggle("today", soon.when === "i dag");
+  chip.setAttribute("aria-label", `${Waste.list(soon.types)} hentes ${soon.when}. Vis tømmekalenderen`);
+}
+
+function binChips(types) {
+  return types.map((t) => {
+    const w = Waste.type(t);
+    const el = h("span", { class: "k-bin-type" }, h("span", { class: "k-bin-dot" }), w.name);
+    el.style.setProperty("--bin", w.color);
+    return el;
+  });
+}
+
+function renderWaste() {
+  const w = waste;
+  renderIdagTab();
+  const card = $("k-bins");
+  card.hidden = !w?.configured;
+  const pickups = w?.pickups ?? [];
+
+  syncChips();
+  if (!w?.configured) return;
+
+  const hint = $("k-bins-hint");
+  hint.hidden = Boolean(pickups.length);
+  hint.textContent = w.reason ?? "";
+  const [next, ...rest] = pickups;
+  $("k-bins-body").replaceChildren(
+    ...(next
+      ? [
+          h("div", { class: "k-bin-next" }, h("strong", {}, Waste.day(next.date)), h("div", { class: "k-bin-types" }, binChips(next.types))),
+          h(
+            "ol",
+            { class: "k-bin-list" },
+            rest.slice(0, 3).map((p) => h("li", {}, h("span", { class: "k-bin-when" }, Waste.day(p.date)), h("div", { class: "k-bin-types" }, binChips(p.types)))),
+          ),
+        ]
+      : []),
+  );
+}
+
+async function loadWaste() {
+  try {
+    const res = await fetch("/api/waste");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    waste = await res.json();
+  } catch {
+    // Beholder det vi har.
+  }
+  renderWaste();
+}
+
+function loadIdag() {
+  loadWeather();
+  loadWaste();
+}
+
+$("k-bin-chip").addEventListener("click", () => showTab("idag"));
+loadIdag();
+setInterval(loadIdag, 10 * 60_000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && weather?.updated !== undefined) loadWeather();
+  if (!document.hidden) loadIdag();
 });

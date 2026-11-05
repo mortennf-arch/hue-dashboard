@@ -148,13 +148,27 @@ Fanen «I dag» viser været nå, de neste timene og de neste dagene, både i da
 
 Vil du heller oppgi et punkt på kartet, bruk `HJEM_POSISJON: "59.91,10.75"` (breddegrad, lengdegrad). Finner ikke Kartverket adressen, står det i loggen og i fanen.
 
+## Tømmekalender (valgfritt)
+
+Fanen «I dag» kan også vise når søpla hentes, og hvilke dunker det gjelder. Foreløpig virker dette med Stavanger kommunes tømmekalender.
+
+1. Gå til [Stavangers tømmekalender](https://www.stavanger.kommune.no/renovasjon-og-miljo/tommekalender/finn-kalender/), søk opp adressen og velg den.
+2. Kopier lenken fra adressefeltet. Den starter med `https://www.stavanger.kommune.no/renovasjon-og-miljo/tommekalender/finn-kalender/show?ids=`.
+3. Legg den til under `environment` i TrueNAS:
+
+   ```yaml
+         TOMMEKALENDER_URL: "https://www.stavanger.kommune.no/renovasjon-og-miljo/tommekalender/finn-kalender/show?ids=...&municipality=Stavanger&gnumber=...&bnumber=...&snumber=0"
+   ```
+
+Kalenderen hentes to ganger i døgnet og lagres i `tommekalender.json` i datasettet. Loggen viser for eksempel `Tømmekalender: 9 tømmedager, neste 2026-11-06`. Hentes det søppel i dag eller i morgen, står det også øverst på kjøkkennettbrettet og på fanen i dashbordet.
+
 ## Kjøkkennettbrett (valgfritt)
 
 En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har fanene Musikk, Lys, I dag og Sikkerhet.
 
 - **Musikk:** rommene til venstre kommer rett fra Sonos. Rom som er merket med gult, spiller sammen. Trykk på et rom for å legge det til eller ta det ut. Med flere rom valgt får hvert rom sin egen volumknapp, pluss «Alle rom».
 - **Lys:** av/på, lysstyrke og scener for hvert Hue-rom.
-- **I dag:** været fra yr nå, de neste timene og dagene. Temperaturen står også øverst til høyre, og et trykk på den åpner fanen. Krever `HJEM_ADRESSE`, se over.
+- **I dag:** været fra yr nå, de neste timene og dagene, og når søpla hentes. Temperaturen står på fanen, og «Restavfall i morgen» dukker opp øverst til høyre dagen før. Krever `HJEM_ADRESSE` og `TOMMEKALENDER_URL`, se over.
 - **Dørklokke:** når noen ringer på, dekker et varsel hele skjermen med en lyd, uansett hvilken fane som er åpen.
 
 **Oppsett på et Android-nettbrett, uten ekstra apper:**
