@@ -334,6 +334,60 @@ export class VerisureClient {
     this.history.record(state.climate ?? []).catch((err) => console.error("Verisure: klarte ikke å lagre målinger:", err.message));
   }
 
+  /**
+   * Feilsøking: finner ut hvilke spørringer Verisure har for historikk, siden appen viser grafer
+   * men ingen har dokumentert hvordan. Returnerer bare skjemaet og statuskoder, aldri innlogging.
+   */
+  async probe(): Promise<Record<string, unknown>> {
+    if (!(await this.refreshToken())) await this.login();
+    if (!this.giid) await this.chooseInstallation();
+    const out: Record<string, unknown> = {};
+    const raw = async (name: string, query: string, variables: Record<string, unknown> = {}) => {
+      try {
+        const res = await this.call("POST", "/graphql", { body: [{ operationName: name, query, variables }] });
+        // Skjemaet gjøres om til korte linjer som «climates(filter): [Climate]», så svaret blir lett å lese.
+        const fields = (() => {
+          try {
+            const d = (JSON.parse(res.text) as any[])[0]?.data;
+            const list = d?.__type?.fields ?? d?.__schema?.queryType?.fields;
+            if (!Array.isArray(list)) return null;
+            const typeName = (t: any): string => (!t ? "" : t.name ?? (t.kind === "LIST" ? `[${typeName(t.ofType)}]` : typeName(t.ofType)));
+            return list.map((f: any) => `${f.name}(${(f.args ?? []).map((a: any) => a.name).join(", ")}): ${typeName(f.type)}`);
+          } catch {
+            return null;
+          }
+        })();
+        out[name] = fields ? { status: res.status, fields } : { status: res.status, body: res.text.slice(0, 3000) };
+      } catch (err) {
+        out[name] = { error: (err as Error).message };
+      }
+    };
+    const typeQuery = (t: string) =>
+      `query T${t} { __type(name: "${t}") { name fields { name args { name type { name kind ofType { name kind } } } type { name kind ofType { name kind ofType { name } } } } } }`;
+    await raw("TInstallation", typeQuery("Installation"));
+    await raw("TClimate", typeQuery("Climate"));
+    await raw("TQuery", `query TQuery { __schema { queryType { fields { name args { name } } } } }`);
+    // Ukjente felter gir ofte «Did you mean ...?» i feilmeldingen, også når introspeksjon er av.
+    const sensor = this.state.climate[0]?.id ?? "";
+    for (const f of ["climateHistory", "climateValues", "climateGraph", "climateStatistics", "climateSeries", "history", "climateHistories"]) {
+      await raw(`G_${f}`, `query G_${f}($giid: String!) { installation(giid: $giid) { ${f} } }`, { giid: this.giid });
+    }
+    await raw("G_climateArgs", `query G_climateArgs($giid: String!) { installation(giid: $giid) { climates(xyz: 1) { device { deviceLabel } } } }`, { giid: this.giid });
+    // Det gamle REST-API-et hadde historikk per sensor.
+    for (const url of [
+      `/xbn/2/installation/${this.giid}/climate/simple/search?deviceLabel=${encodeURIComponent(sensor)}`,
+      `/installation/${this.giid}/climate/simple/search?deviceLabel=${encodeURIComponent(sensor)}`,
+    ]) {
+      try {
+        const res = await this.call("GET", url);
+        out[`REST ${url.replace(this.giid, "GIID")}`] = { status: res.status, body: res.text.slice(0, 1500) };
+      } catch (err) {
+        out[`REST ${url.replace(this.giid, "GIID")}`] = { error: (err as Error).message };
+      }
+    }
+    return out;
+  }
+
   // ---------- Henting med jevne mellomrom ----------
 
   private schedule(ms: number): void {
