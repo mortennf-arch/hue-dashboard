@@ -41,6 +41,14 @@ export interface SonosGroup {
   volume: number;
   muted: boolean;
   track: SonosTrack | null;
+  /** De neste sangene i køen, når det spilles fra køen (spilleliste, album). Tom for radio. */
+  upNext: QueueItem[];
+}
+
+export interface QueueItem {
+  title: string;
+  artist: string;
+  art: string;
 }
 
 /** En Sonos-favoritt slik dashbordet ser den. Adressen og metadata blir på serveren. */
@@ -73,6 +81,8 @@ const PORT = 1400;
 const POLL_MS = 2000;
 const TOPOLOGY_MS = 10_000;
 const FAVORITES_MS = 60_000;
+const QUEUE_MS = 30_000;
+const UP_NEXT = 5;
 const TIMEOUT_MS = 4000;
 
 const SERVICES = {
@@ -191,6 +201,17 @@ export function parseTrack(meta: string, mediaMeta: string, host: string, rel: s
     position: parseDuration(rel),
     duration: parseDuration(dur),
   };
+}
+
+/** Leser sangene i køen (Q:0) fra ContentDirectory. */
+export function parseQueue(didl: string, host: string): QueueItem[] {
+  const out: QueueItem[] = [];
+  for (const m of didl.matchAll(/<item\s[^>]*>([\s\S]*?)<\/item>/g)) {
+    const title = tag(m[1], "title");
+    if (!title) continue;
+    out.push({ title, artist: tag(m[1], "creator") || tag(m[1], "albumArtist"), art: artUrl(tag(m[1], "albumArtURI"), host) });
+  }
+  return out;
 }
 
 /** Hva slags favoritt det er, ut fra adressen og klassen. */
@@ -350,6 +371,8 @@ export class SonosManager {
   private state: SonosState = { available: false, reason: "Leter etter Sonos-høyttalere …", groups: [], favorites: [], spotifyAccounts: [], updatedAt: "" };
   private favorites: FavoriteItem[] = [];
   private favoritesAt = 0;
+  /** Køen hentes bare når sangen byttes, eller hvert halve minutt. Nøkkelen er koordinatoren. */
+  private queues = new Map<string, { key: string; at: number; items: QueueItem[] }>();
   private accountNames: Record<string, string> = {};
   private lastJson = "";
   private timer: NodeJS.Timeout | null = null;
@@ -554,6 +577,7 @@ export class SonosManager {
       tag(position, "RelTime"),
       tag(position, "TrackDuration"),
     );
+    const upNext = await this.upNext(coord.host, g.coordinator, tag(media, "CurrentURI"), Number(tag(position, "Track")) || 0);
     const volume = groupVol ? Number(tag(groupVol[0], "CurrentVolume")) || 0 : members[0].volume;
     const muted = groupVol ? tag(groupVol[1], "CurrentMute") === "1" : members[0].muted;
     return {
@@ -565,7 +589,34 @@ export class SonosManager {
       volume,
       muted,
       track,
+      upNext,
     };
+  }
+
+  /** De neste sangene i køen. Radio og artistradio har ingen kø, og gir en tom liste. */
+  private async upNext(host: string, coordinator: string, uri: string, track: number): Promise<QueueItem[]> {
+    if (!uri.startsWith("x-rincon-queue:") || track < 1) {
+      this.queues.delete(coordinator);
+      return [];
+    }
+    const key = `${uri}|${track}`;
+    const cached = this.queues.get(coordinator);
+    if (cached && cached.key === key && Date.now() - cached.at < QUEUE_MS) return cached.items;
+    try {
+      const xml = await soap(host, "ContentDirectory", "Browse", {
+        ObjectID: "Q:0",
+        BrowseFlag: "BrowseDirectChildren",
+        Filter: "dc:title,dc:creator,upnp:albumArtURI",
+        StartingIndex: track, // Track teller fra 1, så indeks «track» er sangen etter den som spilles.
+        RequestedCount: UP_NEXT,
+        SortCriteria: "",
+      });
+      const items = parseQueue(tag(xml, "Result"), host);
+      this.queues.set(coordinator, { key, at: Date.now(), items });
+      return items;
+    } catch {
+      return cached?.items ?? [];
+    }
   }
 
   // ---------- Kommandoer fra dashbordet ----------
