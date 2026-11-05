@@ -759,6 +759,8 @@ export class SonosManager {
     if (!p || !g) throw new Error("Fant ikke rommet");
     if (g.members.some((m) => m.uuid === uuid)) return;
     await soap(p.host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: `x-rincon:${g.coordinator}`, CurrentURIMetaData: "" });
+    // Rommet som blir med, får samme volum som gruppen.
+    await this.setVolumeOf(p.host, g.volume);
     this.topologyChanged();
   }
 
@@ -788,9 +790,10 @@ export class SonosManager {
     if (!g) throw new Error("Fant ikke rommet");
     const others = this.state.groups.flatMap((x) => x.members).filter((m) => !g.members.some((y) => y.uuid === m.uuid));
     await Promise.all(
-      others.map((m) =>
-        soap(m.host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: `x-rincon:${g.coordinator}`, CurrentURIMetaData: "" }),
-      ),
+      others.map(async (m) => {
+        await soap(m.host, "AVTransport", "SetAVTransportURI", { InstanceID: 0, CurrentURI: `x-rincon:${g.coordinator}`, CurrentURIMetaData: "" });
+        await this.setVolumeOf(m.host, g.volume);
+      }),
     );
     this.topologyChanged();
   }
@@ -814,9 +817,25 @@ export class SonosManager {
     if (!g) throw new Error("Fant ikke rommet");
     if (g.members.length === 1) return this.setPlayerVolume(g.members[0].uuid, opts);
     const host = g.members.find((m) => m.uuid === g.coordinator)?.host ?? g.members[0].host;
-    if (opts.volume !== undefined) await soap(host, "GroupRenderingControl", "SetGroupVolume", { InstanceID: 0, DesiredVolume: opts.volume });
+    // Hovedvolumet setter alle rommene til samme verdi. (Sonos sitt eget gruppevolum skalerer dem i forhold
+    // til hverandre, så et rom som var skrudd ned, forblir lavere.) Hvert rom kan justeres for seg etterpå.
+    if (opts.volume !== undefined) {
+      const v = opts.volume;
+      await Promise.all(g.members.map((m) => this.setVolumeOf(m.host, v)));
+      g.volume = v;
+      for (const m of g.members) m.volume = v;
+    }
     if (opts.mute !== undefined) await soap(host, "GroupRenderingControl", "SetGroupMute", { InstanceID: 0, DesiredMute: opts.mute ? 1 : 0 });
     this.refreshSoon();
+  }
+
+  /** Volumet på én høyttaler. En feil logges, så resten av rommene likevel får sitt. */
+  private async setVolumeOf(host: string, volume: number): Promise<void> {
+    try {
+      await soap(host, "RenderingControl", "SetVolume", { InstanceID: 0, Channel: "Master", DesiredVolume: Math.min(100, Math.max(0, Math.round(volume))) });
+    } catch (err) {
+      console.log(`Sonos: fikk ikke satt volumet på ${host} (${(err as Error).message})`);
+    }
   }
 
   async setPlayerVolume(uuid: string, opts: { volume?: number; mute?: boolean }): Promise<void> {
