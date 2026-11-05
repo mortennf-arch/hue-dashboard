@@ -1935,7 +1935,7 @@ function renderSonosDialogs() {
 
 // ---------- Faner ----------
 
-const TABS = ["lys", "musikk", "sikkerhet"];
+const TABS = ["lys", "musikk", "idag", "sikkerhet"];
 let tab = TABS.includes(storage("tab")) ? storage("tab") : "lys";
 
 function showTab(name, focus = false) {
@@ -2016,6 +2016,77 @@ function renderTabs() {
   }
   showTab(tab);
 }
+
+// ---------- I dag: været fra yr ----------
+
+let weather = null;
+
+function renderWeather() {
+  const w = weather;
+  const tabBtn = document.getElementById("tab-idag");
+  const had = !tabBtn.hidden;
+  tabBtn.hidden = !w?.configured;
+  if (!had && !tabBtn.hidden && storage("tab") === "idag" && tab !== "idag") showTab("idag");
+  if (had && tabBtn.hidden && tab === "idag") showTab("lys");
+  if (!w?.configured) return;
+
+  setStatus("status-idag", w.now ? `${Weather.temp(w.now.temp)} ${w.now.text.toLowerCase()}${w.note ? ` · ${w.note.toLowerCase()}` : ""}` : w.reason || "");
+  document.getElementById("wx-place").textContent = w.place ? ` i ${w.place}` : "";
+  const hint = document.getElementById("wx-hint");
+  hint.hidden = Boolean(w.available);
+  hint.textContent = w.reason ?? "";
+  const body = document.getElementById("wx-now-body");
+  const hours = document.getElementById("wx-hours");
+  const days = document.getElementById("wx-days");
+  if (!w.now) {
+    body.replaceChildren();
+    hours.replaceChildren();
+    days.replaceChildren();
+    return;
+  }
+  const n = w.now;
+  const icon = h("div", {});
+  icon.innerHTML = Weather.icon(n.symbol, 84);
+  const facts = [`Vind ${n.wind.toLocaleString("nb-NO")} m/s${n.gust ? ` (kast ${Math.round(n.gust)})` : ""}`, n.humidity !== null ? `Fukt ${n.humidity} %` : "", n.precip >= 0.1 ? `${Weather.mm(n.precip)} neste time` : ""].filter(Boolean);
+  body.replaceChildren(
+    h("div", { class: "wx-now-top" }, icon, h("div", {}, h("strong", { class: "wx-temp" + (n.temp < 0 ? " cold" : "") }, Weather.temp(n.temp)), h("span", { class: "wx-desc" }, n.text))),
+    w.note ? h("p", { class: "wx-note" }, w.note) : null,
+    h("p", { class: "wx-facts" }, facts.join(" · ")),
+  );
+  hours.replaceChildren(
+    ...w.hours.slice(0, 12).map((x, i) => {
+      const li = h("li", {}, h("span", { class: "wx-h" }, i === 0 ? "Nå" : Weather.hour(x.time)));
+      li.insertAdjacentHTML("beforeend", Weather.icon(x.symbol, 30));
+      li.append(h("strong", { class: x.temp < 0 ? "cold" : "" }, Weather.temp(x.temp)), h("span", { class: "wx-mm" }, Weather.mm(x.precip)));
+      return li;
+    }),
+  );
+  days.replaceChildren(
+    ...w.days.map((d) => {
+      const li = h("li", {}, h("span", {}, Weather.dayName(d.date)));
+      li.insertAdjacentHTML("beforeend", Weather.icon(d.symbol, 30));
+      li.append(
+        h("span", { class: "wx-range" }, h("strong", { class: d.max < 0 ? "cold" : "" }, Weather.temp(d.max)), h("span", {}, ` / ${Weather.temp(d.min)}`)),
+        h("span", { class: "wx-mm" }, Weather.mm(d.precip)),
+      );
+      return li;
+    }),
+  );
+}
+
+async function loadWeather() {
+  try {
+    const res = await fetch("/api/weather");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    weather = await res.json();
+  } catch {
+    // Beholder det vi har.
+  }
+  renderWeather();
+}
+
+loadWeather();
+setInterval(loadWeather, 10 * 60_000);
 
 // ---------- Samlet tegning ----------
 

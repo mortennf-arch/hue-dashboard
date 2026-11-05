@@ -110,12 +110,15 @@ function setFill(input) {
 
 // ---------- Faner ----------
 
-const TABS = ["musikk", "lys", "sikkerhet"];
+const TABS = ["musikk", "lys", "idag", "sikkerhet"];
 let tab = TABS.includes(storage("kTab")) ? storage("kTab") : "musikk";
 
-function showTab(name) {
+const visibleTabs = () => TABS.filter((t) => !$(`tab-${t}`).hidden);
+
+function showTab(name, remember = true) {
+  if (!visibleTabs().includes(name)) name = "musikk";
+  else if (remember) storage("kTab", name);
   tab = name;
-  storage("kTab", name);
   for (const t of TABS) {
     const btn = $(`tab-${t}`);
     btn.setAttribute("aria-selected", String(t === name));
@@ -127,15 +130,16 @@ function showTab(name) {
 for (const btn of document.querySelectorAll("[role=tab]")) {
   btn.addEventListener("click", () => showTab(btn.dataset.tab));
   btn.addEventListener("keydown", (e) => {
-    const i = TABS.indexOf(btn.dataset.tab);
-    const next = e.key === "ArrowRight" ? TABS[(i + 1) % TABS.length] : e.key === "ArrowLeft" ? TABS[(i + TABS.length - 1) % TABS.length] : null;
+    const list = visibleTabs();
+    const i = list.indexOf(btn.dataset.tab);
+    const next = e.key === "ArrowRight" ? list[(i + 1) % list.length] : e.key === "ArrowLeft" ? list[(i + list.length - 1) % list.length] : null;
     if (!next) return;
     e.preventDefault();
     showTab(next);
     $(`tab-${next}`).focus();
   });
 }
-showTab(tab);
+showTab(tab, false);
 
 // ---------- Klokke ----------
 
@@ -1162,3 +1166,85 @@ document.addEventListener("fullscreenchange", () => {
 connect();
 // Teksten om dørklokka skifter ved midnatt, og «Kobles til …» går ut på tid.
 setInterval(render, 30_000);
+
+// ---------- I dag: været fra yr ----------
+
+let weather = null;
+
+function renderWeather() {
+  const w = weather;
+  const tabBtn = $("tab-idag");
+  const had = !tabBtn.hidden;
+  tabBtn.hidden = !w?.configured;
+  // Fanen kommer først når serveren har svart. Vis den lagrede fanen da.
+  if (!had && !tabBtn.hidden && storage("kTab") === "idag" && tab !== "idag") showTab("idag", false);
+  if (had && tabBtn.hidden && tab === "idag") showTab("musikk", false);
+
+  const chip = $("k-wx-chip");
+  chip.hidden = !w?.now;
+  if (w?.now) {
+    chip.innerHTML = `${Weather.icon(w.now.symbol, 26)}<strong>${Weather.temp(w.now.temp)}</strong>`;
+    chip.setAttribute("aria-label", `${Weather.temp(w.now.temp)}, ${w.now.text}. Vis været`);
+  }
+  if (!w?.configured) return;
+
+  $("k-wx-place").textContent = w.place ? ` i ${w.place}` : "";
+  const hint = $("k-wx-hint");
+  hint.hidden = Boolean(w.available);
+  hint.textContent = w.reason ?? "";
+  const body = $("k-wx-now-body");
+  if (!w.now) {
+    body.replaceChildren();
+    $("k-wx-hours").replaceChildren();
+    $("k-wx-days").replaceChildren();
+    return;
+  }
+  const n = w.now;
+  const icon = h("div", { class: "k-wx-big" });
+  icon.innerHTML = Weather.icon(n.symbol, 120);
+  const facts = [`Vind ${n.wind.toLocaleString("nb-NO")} m/s${n.gust ? ` (kast ${Math.round(n.gust)})` : ""}`, n.precip >= 0.1 ? `${Weather.mm(n.precip)} neste time` : ""].filter(Boolean);
+  body.replaceChildren(
+    h("div", { class: "k-wx-now-top" }, icon, h("div", { class: "k-wx-now-text" }, h("strong", { class: "k-wx-temp" + (n.temp < 0 ? " cold" : "") }, Weather.temp(n.temp)), h("span", { class: "k-wx-desc" }, n.text))),
+    w.note ? h("p", { class: "k-wx-note" }, w.note) : null,
+    h("p", { class: "k-wx-facts" }, facts.join(" · ")),
+  );
+
+  $("k-wx-hours").replaceChildren(
+    ...w.hours.slice(0, 12).map((x, i) => {
+      const li = h("li", {}, h("span", { class: "k-wx-h" }, i === 0 ? "Nå" : Weather.hour(x.time)));
+      li.insertAdjacentHTML("beforeend", Weather.icon(x.symbol, 40));
+      li.append(h("strong", { class: x.temp < 0 ? "cold" : "" }, Weather.temp(x.temp)), h("span", { class: "k-wx-mm" }, Weather.mm(x.precip)));
+      return li;
+    }),
+  );
+
+  $("k-wx-days").replaceChildren(
+    ...w.days.map((d) => {
+      const li = h("li", {}, h("span", { class: "k-wx-day" }, Weather.dayName(d.date)));
+      li.insertAdjacentHTML("beforeend", Weather.icon(d.symbol, 36));
+      li.append(
+        h("span", { class: "k-wx-range" }, h("strong", { class: d.max < 0 ? "cold" : "" }, Weather.temp(d.max)), h("span", {}, ` / ${Weather.temp(d.min)}`)),
+        h("span", { class: "k-wx-mm" }, Weather.mm(d.precip)),
+      );
+      return li;
+    }),
+  );
+}
+
+async function loadWeather() {
+  try {
+    const res = await fetch("/api/weather");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    weather = await res.json();
+  } catch {
+    // Beholder det vi har. Mangler kontakt, vises det allerede øverst.
+  }
+  renderWeather();
+}
+
+$("k-wx-chip").addEventListener("click", () => showTab("idag"));
+loadWeather();
+setInterval(loadWeather, 10 * 60_000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && weather?.updated !== undefined) loadWeather();
+});
