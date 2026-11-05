@@ -749,10 +749,11 @@ async function showArtist(id) {
       ),
     ];
     const section = (label, body) => h("section", { class: "k-section" }, h("div", { class: "k-section-head" }, h("h3", {}, label)), body);
-    if (data.topTracks?.length) parts.push(section("Mest spilt", h("div", { class: "k-rows" }, data.topTracks.map(topTrackRow))));
+    if (data.topTracks?.length) parts.push(section("Populære sanger", h("div", { class: "k-rows" }, data.topTracks.map(topTrackRow))));
     if (data.thisIs) parts.push(section(`This Is ${a.title}`, h("div", { class: "k-fav-grid k-tiles" }, hitTile(data.thisIs))));
     if (data.albums?.length) parts.push(section("Album og singler", h("div", { class: "k-fav-grid k-tiles" }, data.albums.map(hitTile))));
-    if (data.appearsOn?.length) parts.push(section("Med på (featuring)", h("div", { class: "k-fav-grid k-tiles" }, data.appearsOn.map(hitTile))));
+    // «Med på» kan være album eller sanger, alt etter hva Spotify lar oss hente.
+    if (data.appearsOn?.length) parts.push(section("Med på (featuring)", hitsOf(data.appearsOn[0].type, data.appearsOn)));
     list.replaceChildren(...parts);
     list.scrollTop = 0;
   } catch (err) {

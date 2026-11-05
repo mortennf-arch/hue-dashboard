@@ -99,13 +99,59 @@ export class SpotifyClient {
     const list = (x: Record<string, any> | null, key: string) => ((x?.[key] ?? []) as (Record<string, any> | null)[]).filter((v): v is Record<string, any> => Boolean(v?.id));
     // Spotify gir ofte samme album flere ganger (utgaver for ulike land). Navnet holder for å rydde.
     const uniqueByTitle = (hits: SpotifyHit[]) => hits.filter((h, i) => hits.findIndex((x) => x.title.toLocaleLowerCase("nb") === h.title.toLocaleLowerCase("nb")) === i);
+    for (const [part, r] of [["mest spilt", top], ["album", albums], ["featuring", appears]] as const) {
+      if (r.status === "rejected") console.log(`Spotify: ${part} for ${name} er ikke tilgjengelig (${(r.reason as Error).message}), bruker søket i stedet`);
+    }
+    let topTracks = list(val(top), "tracks").slice(0, 10).map(trackHit);
+    let albumHits = uniqueByTitle(list(val(albums), "items").map(albumHit));
+    let appearsOn = uniqueByTitle(list(val(appears), "items").map(albumHit));
+    // Spotify har stengt flere artist-oppslag for nye utvikler-apper. Da hentes det samme via søket.
+    if (!topTracks.length || !albumHits.length || !appearsOn.length) {
+      const found = await this.artistViaSearch(id, name).catch((err: Error) => {
+        console.log(`Spotify: søket etter ${name} feilet (${err.message})`);
+        return null;
+      });
+      if (found) {
+        if (!topTracks.length) topTracks = found.top;
+        if (!albumHits.length) albumHits = uniqueByTitle(found.albums);
+        if (!appearsOn.length) appearsOn = found.featuring;
+      }
+    }
     const thisIs = await this.thisIs(name).catch(() => null);
     return {
       artist: { type: "artist", id, title: name, subtitle: "Artistradio", art: pickImage(a.images) },
-      topTracks: list(val(top), "tracks").slice(0, 10).map(trackHit),
-      albums: uniqueByTitle(list(val(albums), "items").map(albumHit)),
-      appearsOn: uniqueByTitle(list(val(appears), "items").map(albumHit)),
+      topTracks,
+      albums: albumHits,
+      appearsOn,
       thisIs,
+    };
+  }
+
+  /**
+   * Artistens sanger og album funnet med søket. Søket gir de mest populære først, så de første sangene der
+   * artisten står først, blir «mest spilt». Sanger der artisten er med, men ikke står først, blir «featuring».
+   */
+  private async artistViaSearch(id: string, name: string): Promise<{ top: SpotifyHit[]; albums: SpotifyHit[]; featuring: SpotifyHit[] }> {
+    const q = `artist:"${name.replace(/"/g, "")}"`;
+    const pages = await Promise.allSettled([
+      ...[0, 10, 20, 30].map((offset) => this.get("search", { q, type: "track", market: "NO", limit: "10", offset: String(offset) })),
+      ...[0, 10].map((offset) => this.get("search", { q, type: "album", market: "NO", limit: "10", offset: String(offset) })),
+    ]);
+    const ok = pages.flatMap((p) => (p.status === "fulfilled" ? [p.value] : []));
+    if (!ok.length) throw (pages[0] as PromiseRejectedResult).reason;
+    const items = (key: string) =>
+      ok.flatMap((d) => ((d[key]?.items ?? []) as (Record<string, any> | null)[]).filter((v): v is Record<string, any> => Boolean(v?.id)));
+    const by = (x: Record<string, any>) => ((x.artists ?? []) as { id?: string }[]).map((a) => a.id);
+    const seen = new Set<string>();
+    const tracks = items("tracks").filter((t) => !seen.has(t.id) && seen.add(t.id) && by(t).includes(id));
+    // Er populariteten med, sorteres det etter den. Ellers beholdes rekkefølgen fra søket.
+    const primary = tracks.filter((t) => by(t)[0] === id);
+    if (primary.every((t) => typeof t.popularity === "number")) primary.sort((x, y) => y.popularity - x.popularity);
+    const sameName = (hits: SpotifyHit[]) => hits.filter((h, i) => hits.findIndex((x) => x.title.toLocaleLowerCase("nb") === h.title.toLocaleLowerCase("nb")) === i);
+    return {
+      top: sameName(primary.map(trackHit)).slice(0, 10),
+      albums: items("albums").filter((a) => by(a).includes(id)).map(albumHit),
+      featuring: sameName(tracks.filter((t) => by(t)[0] !== id).map(trackHit)).slice(0, 12),
     };
   }
 
