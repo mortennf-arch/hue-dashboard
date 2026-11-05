@@ -15,6 +15,8 @@ Miljøvariabler:
   SONOS                Sett til «off» for å skru av Sonos-delen
   SPOTIFY_CLIENT_ID    Nøkler fra developer.spotify.com, for å søke i Spotify fra dashbordet
   SPOTIFY_CLIENT_SECRET
+  VERISURE_USERNAME    E-post og passord til Verisure-appen, for alarmstatus, dører, temperatur og logg (bare lesing)
+  VERISURE_PASSWORD
   PORT                 Porten dashbordet svarer på (standard: 8095)
   DATA_DIR             Hvor config.json og logger lagres (standard: ./data)
   PAIR_TIMEOUT_S       Hvor lenge paringen venter på knappetrykk. 0 = for alltid (standard: 60)`;

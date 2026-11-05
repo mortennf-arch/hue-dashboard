@@ -6,6 +6,7 @@ import type { HueClient, HueEvent } from "./hue-client.js";
 import type { ResourceStore } from "./store.js";
 import type { SonosManager, SonosState } from "./sonos.js";
 import type { SpotifyClient } from "./spotify.js";
+import type { VerisureClient, VerisureState } from "./verisure.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -40,6 +41,7 @@ export interface WebServer {
   broadcastEvents(events: HueEvent[]): void;
   broadcastSnapshot(): void;
   broadcastSonos(state: SonosState): void;
+  broadcastVerisure(state: VerisureState): void;
   setBridgeStatus(connected: boolean, reason?: string): void;
   close(): void;
 }
@@ -88,8 +90,9 @@ export async function startWebServer(opts: {
   store: ResourceStore;
   sonos?: SonosManager;
   spotify?: SpotifyClient;
+  verisure?: VerisureClient;
 }): Promise<WebServer> {
-  const { client, store, sonos, spotify } = opts;
+  const { client, store, sonos, spotify, verisure } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
@@ -97,7 +100,7 @@ export async function startWebServer(opts: {
   let bridge = { connected: true, reason: "" };
   // De siste hendelsene, slik at et nyåpnet dashbord har noe i loggen med en gang.
   const recent: HueEvent[] = [];
-  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured) });
+  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured), verisure: verisure?.state ?? null });
 
   const send = (res: http.ServerResponse, event: string, data: unknown) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -320,6 +323,27 @@ export async function startWebServer(opts: {
       return json(res, 405, { error: "Ikke tillatt" });
     }
 
+    // Verisure: bare lesing. Det eneste dashbordet kan gjøre, er å fullføre innloggingen med engangskode.
+    if (url.pathname.startsWith("/api/verisure/")) {
+      if (!verisure) return json(res, 404, { error: "Verisure er ikke satt opp" });
+      if (req.method === "POST" && url.pathname === "/api/verisure/mfa/request") {
+        await verisure.requestMfa();
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/api/verisure/mfa/validate") {
+        const body = await readBody(req);
+        const code = typeof body.code === "string" ? body.code.replace(/\s/g, "") : "";
+        if (!/^\d{4,8}$/.test(code)) return json(res, 400, { error: "Skriv inn koden du fikk (bare tall)" });
+        await verisure.validateMfa(code);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/api/verisure/refresh") {
+        verisure.poll();
+        return json(res, 202, { ok: true });
+      }
+      return json(res, 404, { error: "Ukjent adresse" });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/all-off") {
       // grouped_light som eies av bridge_home er «hele huset».
       const home = store.all().find((r) => r.type === "grouped_light" && r.owner?.rtype === "bridge_home");
@@ -379,6 +403,7 @@ export async function startWebServer(opts: {
     },
     broadcastSnapshot: () => broadcast("snapshot", snapshot()),
     broadcastSonos: (state) => broadcast("sonos", state),
+    broadcastVerisure: (state) => broadcast("verisure", state),
     setBridgeStatus: (connected, reason = "") => {
       if (bridge.connected === connected && bridge.reason === reason) return;
       bridge = { connected, reason };

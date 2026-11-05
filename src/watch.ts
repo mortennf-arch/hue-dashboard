@@ -6,6 +6,7 @@ import { ResourceStore } from "./store.js";
 import { startWebServer, type WebServer } from "./server.js";
 import { SonosManager } from "./sonos.js";
 import { SpotifyClient } from "./spotify.js";
+import { VerisureClient } from "./verisure.js";
 
 const SKIP_KEYS = new Set(["id", "id_v1", "type", "owner", "service_id"]);
 
@@ -104,10 +105,28 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
       }
     });
   }
+  let verisure: VerisureClient | null = null;
   if (opts.web) {
-    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient() });
+    let lastStatus = "";
+    let listed = false;
+    const v = new VerisureClient((state) => {
+      web?.broadcastVerisure(state);
+      if (state.status !== lastStatus) {
+        lastStatus = state.status;
+        console.log(`${time()}  Verisure: ${state.status === "ok" ? "tilkoblet" : state.reason || state.status}`);
+      }
+      if (state.status === "ok" && !listed) {
+        listed = true;
+        const n = (label: string, list: unknown[]) => (list.length ? `${list.length} ${label}` : "");
+        const parts = [n("dør/vindu", state.doors), n("temperaturmålere", state.climate), n("låser", state.locks), n("smartplugger", state.plugs), n("personer", state.people)].filter(Boolean);
+        console.log(`${time()}  Verisure «${state.installation}»: ${parts.join(", ") || "ingen enheter funnet"}`);
+      }
+    });
+    if (v.configured) verisure = v;
+    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined });
     console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
     sonos?.start().catch((err) => console.error("Sonos:", err.message));
+    verisure?.start().catch((err) => console.error("Verisure:", err.message));
   }
   console.log("Lytter på hendelser. Skru på et lys, trykk på en bryter eller ring på døra. Ctrl+C avslutter.");
   console.log("");
@@ -150,6 +169,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
     const shutdown = () => {
       stop();
       sonos?.stop();
+      verisure?.stop();
       web?.close();
       client.close();
       resolve();
