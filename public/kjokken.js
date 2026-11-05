@@ -5,6 +5,7 @@
 
 const byId = new Map();
 let sonos = null;
+let sonosAt = 0; // da siste Sonos-tilstand kom, for å regne ut hvor langt sangen har kommet
 let spotifyOn = false;
 let online = false;
 
@@ -391,7 +392,58 @@ function renderNow(g) {
     play.innerHTML = playing ? PAUSE_SVG : PLAY_SVG;
     play.setAttribute("aria-label", playing ? "Pause" : "Spill");
   }
+  renderProgress(g);
+  renderUpNext(g);
   renderVolumes(g);
+}
+
+const fmtDur = (sec) => {
+  const s = Math.max(0, Math.floor(sec));
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return hh ? `${hh}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
+};
+
+/** Fremdriftslinjen. Høyttalerne spørres hvert andre sekund, og imens regnes tiden videre her. */
+function renderProgress(g) {
+  const box = $("k-progress");
+  const t = g?.track;
+  if (!t || !t.duration) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const playing = g.state === "playing";
+  const pos = Math.min(t.duration, t.position + (playing ? (Date.now() - sonosAt) / 1000 : 0));
+  const pct = (pos / t.duration) * 100;
+  $("k-bar-fill").style.width = `${pct}%`;
+  $("k-bar").setAttribute("aria-valuenow", String(Math.round(pct)));
+  $("k-pos").textContent = fmtDur(pos);
+  $("k-dur").textContent = fmtDur(t.duration);
+}
+setInterval(() => {
+  if (tab === "musikk" && !document.hidden) renderProgress(currentGroup());
+}, 1000);
+
+function renderUpNext(g) {
+  const box = $("k-upnext");
+  const items = (g?.upNext ?? []).slice(0, g && g.members.length > 2 ? 1 : 3);
+  box.hidden = !items.length;
+  const list = $("k-upnext-list");
+  const key = JSON.stringify(items);
+  if (list.dataset.key === key) return;
+  list.dataset.key = key;
+  list.replaceChildren(
+    ...items.map((it) =>
+      h(
+        "li",
+        {},
+        h("span", { class: "k-row-art small", "aria-hidden": "true" }, artImg(it.art)),
+        h("span", { class: "k-row-text" }, h("strong", {}, it.title), it.artist ? h("span", {}, it.artist) : null),
+      ),
+    ),
+  );
 }
 
 for (const [id, action] of [
@@ -495,8 +547,82 @@ function renderAccounts() {
   );
 }
 
+// ---------- Spotify-søk med filter ----------
+
+const TYPE_NAME = { artist: "Artist", track: "Sang", album: "Album", playlist: "Spilleliste" };
+const SECTIONS = [
+  ["track", "Sanger"],
+  ["artist", "Artister"],
+  ["album", "Album"],
+  ["playlist", "Spillelister"],
+];
+let searchFilter = "";
 let searchSeq = 0;
-async function runSearch(q) {
+let searchOffset = 0;
+
+const playHit = (r) => (g) => api("POST", sonosUrl("group", g.id, "spotify"), { type: r.type, id: r.id, title: r.title, account: currentAccount()?.sn });
+const closeSearch = () => $("k-search").close();
+
+function hitTile(r) {
+  return musicTile(r.title, r.subtitle, r.art, playHit(r), closeSearch);
+}
+
+/** En sang som en rad med lite bilde, slik musikkappene viser sanger. */
+function trackRow(r) {
+  const btn = h(
+    "button",
+    {
+      type: "button",
+      class: "k-row",
+      onclick: async () => {
+        btn.disabled = true;
+        const ok = await playIn(playHit(r));
+        btn.disabled = false;
+        if (ok) closeSearch();
+      },
+    },
+    h("span", { class: "k-row-art", "aria-hidden": "true" }, artImg(r.art)),
+    h("span", { class: "k-row-text" }, h("strong", {}, r.title), h("span", {}, r.subtitle)),
+  );
+  return btn;
+}
+
+function hitsOf(type, hits) {
+  return type === "track" ? h("div", { class: "k-rows" }, hits.map(trackRow)) : h("div", { class: "k-fav-grid k-tiles" }, hits.map(hitTile));
+}
+
+function topHit(r) {
+  const btn = h(
+    "button",
+    {
+      type: "button",
+      class: "k-top-hit",
+      onclick: async () => {
+        btn.disabled = true;
+        const ok = await playIn(playHit(r));
+        btn.disabled = false;
+        if (ok) closeSearch();
+      },
+    },
+    h("span", { class: `k-top-art${r.type === "artist" ? " round" : ""}`, "aria-hidden": "true" }, artImg(r.art)),
+    h(
+      "span",
+      { class: "k-row-text" },
+      h("small", {}, `Beste treff · ${TYPE_NAME[r.type]}`),
+      h("strong", {}, r.title),
+      h("span", {}, r.type === "artist" ? "Spiller artistradio" : r.subtitle),
+    ),
+  );
+  return btn;
+}
+
+function setFilter(type) {
+  searchFilter = type;
+  for (const b of document.querySelectorAll("#k-filters button")) b.setAttribute("aria-pressed", String(b.dataset.filter === type));
+  runSearch($("k-q").value);
+}
+
+async function runSearch(q, more = false) {
   const seq = ++searchSeq;
   const hint = $("k-search-hint");
   const list = $("k-results");
@@ -505,29 +631,59 @@ async function runSearch(q) {
     list.replaceChildren();
     return;
   }
-  hint.hidden = false;
-  hint.textContent = "Søker …";
+  if (!more) {
+    searchOffset = 0;
+    hint.hidden = false;
+    hint.textContent = "Søker …";
+  }
   try {
-    const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(q)}`);
+    const params = new URLSearchParams({ q });
+    if (searchFilter) params.set("type", searchFilter);
+    if (more) params.set("offset", String(searchOffset));
+    const res = await fetch(`/api/spotify/search?${params}`);
     const data = await res.json().catch(() => ({}));
     if (seq !== searchSeq) return;
     if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
     const hits = data.results ?? [];
-    hint.hidden = hits.length > 0;
-    hint.textContent = "Fant ingenting. Prøv et annet ord.";
-    list.replaceChildren(
-      ...hits.map((r) =>
-        musicTile(
-          r.title,
-          r.subtitle,
-          r.art,
-          (g) => api("POST", sonosUrl("group", g.id, "spotify"), { type: r.type, id: r.id, title: r.title, account: currentAccount()?.sn }),
-          () => $("k-search").close(),
+    list.querySelector(".k-more")?.remove();
+
+    if (searchFilter) {
+      // Én type: flere treff, og «Vis flere» henter neste side.
+      searchOffset += hits.length;
+      if (!more) list.replaceChildren(hitsOf(searchFilter, hits));
+      else list.firstElementChild?.append(...(searchFilter === "track" ? hits.map(trackRow) : hits.map(hitTile)));
+      hint.hidden = searchOffset > 0;
+      hint.textContent = "Fant ingenting. Prøv et annet ord.";
+      if (data.more && hits.length) {
+        list.append(h("button", { type: "button", class: "k-secondary k-more", onclick: () => runSearch(q, true) }, "Vis flere"));
+      }
+      return;
+    }
+
+    // Alt: beste treff øverst, så noen få av hver type under hver sin overskrift.
+    const top = data.top;
+    const same = (a, b) => a && b && a.type === b.type && a.id === b.id;
+    const parts = [];
+    if (top) parts.push(topHit(top));
+    for (const [type, label] of SECTIONS) {
+      const of = hits.filter((r) => r.type === type && !same(r, top)).slice(0, 4);
+      if (!of.length) continue;
+      parts.push(
+        h(
+          "section",
+          { class: "k-section" },
+          h("div", { class: "k-section-head" }, h("h3", {}, label), h("button", { type: "button", class: "k-link", onclick: () => setFilter(type) }, "Vis alle")),
+          hitsOf(type, of),
         ),
-      ),
-    );
+      );
+    }
+    hint.hidden = parts.length > 0;
+    hint.textContent = "Fant ingenting. Prøv et annet ord.";
+    list.replaceChildren(...parts);
+    list.scrollTop = 0;
   } catch (err) {
     if (seq !== searchSeq) return;
+    hint.hidden = false;
     hint.textContent = `Søket feilet: ${err.message}`;
   }
 }
@@ -545,9 +701,11 @@ async function runSearch(q) {
     input.blur(); // lukker tastaturet så treffene synes
     runSearch(input.value);
   });
+  for (const b of document.querySelectorAll("#k-filters button")) b.addEventListener("click", () => setFilter(b.dataset.filter));
   $("k-search-open").addEventListener("click", () => {
     delete $("k-account-list").dataset.key;
     renderAccounts();
+    if (searchFilter) setFilter("");
     $("k-search").showModal();
     input.focus();
     input.select();
@@ -803,12 +961,14 @@ function connect() {
     byId.clear();
     for (const r of snap.resources ?? []) byId.set(r.id, r);
     sonos = snap.sonos ?? null;
+    sonosAt = Date.now();
     spotifyOn = Boolean(snap.spotify);
     online = true;
     render();
   });
   es.addEventListener("sonos", (e) => {
     sonos = JSON.parse(e.data);
+    sonosAt = Date.now();
     render();
   });
   es.addEventListener("hue", (e) => {
@@ -836,6 +996,17 @@ document.addEventListener(
   },
   { passive: true },
 );
+
+// Fullskjerm legger siden øverst. Var et vindu (som søket) åpnet i samme trykk, havner det under siden og
+// blir usynlig. Det åpnes derfor på nytt, så det kommer øverst igjen.
+document.addEventListener("fullscreenchange", () => {
+  for (const d of document.querySelectorAll("dialog[open]")) {
+    const focused = document.activeElement;
+    d.close();
+    d.showModal();
+    if (focused && d.contains(focused)) focused.focus();
+  }
+});
 
 connect();
 // Teksten om dørklokka skifter ved midnatt, og «Kobles til …» går ut på tid.

@@ -64,6 +64,11 @@
               <span id="k-source" class="k-source"></span>
             </div>
           </div>
+          <div id="k-progress" class="k-progress" hidden>
+            <span id="k-pos">0:00</span>
+            <div class="k-bar" role="progressbar" aria-label="Hvor langt sangen har kommet" aria-valuemin="0" aria-valuemax="100" id="k-bar"><div id="k-bar-fill"></div></div>
+            <span id="k-dur">0:00</span>
+          </div>
           <div class="k-transport">
             <button type="button" id="k-prev" class="k-round" aria-label="Forrige">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 20 9 12l10-8v16zM5 19V5"/></svg>
@@ -73,6 +78,10 @@
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 4 10 8-10 8V4zM19 5v14"/></svg>
             </button>
           </div>
+          <section id="k-upnext" class="k-upnext" aria-labelledby="k-upnext-h" hidden>
+            <h3 id="k-upnext-h">Neste</h3>
+            <ol id="k-upnext-list"></ol>
+          </section>
           <div id="k-volumes" class="k-volumes"></div>
         </div>
       </section>
@@ -124,8 +133,15 @@
   </div>
   <label for="k-q" class="k-sr">Søk etter artist, sang, album eller spilleliste</label>
   <input id="k-q" type="search" class="k-q" placeholder="Artist, sang, album eller spilleliste" autocomplete="off" enterkeyhint="search">
+  <div id="k-filters" class="k-filters" role="group" aria-label="Vis treff">
+    <button type="button" data-filter="" aria-pressed="true">Alt</button>
+    <button type="button" data-filter="artist" aria-pressed="false">Artister</button>
+    <button type="button" data-filter="track" aria-pressed="false">Sanger</button>
+    <button type="button" data-filter="album" aria-pressed="false">Album</button>
+    <button type="button" data-filter="playlist" aria-pressed="false">Spillelister</button>
+  </div>
   <p id="k-search-hint" class="k-hint" hidden></p>
-  <div id="k-results" class="k-fav-grid k-results"></div>
+  <div id="k-results" class="k-results"></div>
 </dialog>
 
 <div id="k-toast" class="k-toast" role="status" hidden></div>

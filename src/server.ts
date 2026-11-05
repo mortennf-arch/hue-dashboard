@@ -218,7 +218,10 @@ export async function startWebServer(opts: {
 
     if (req.method === "GET" && url.pathname === "/api/spotify/search") {
       if (!spotify?.configured) return json(res, 404, { error: "Spotify er ikke satt opp" });
-      return json(res, 200, { results: await spotify.search(url.searchParams.get("q") ?? "") });
+      const types = ["track", "album", "playlist", "artist"] as const;
+      const type = types.find((t) => t === url.searchParams.get("type"));
+      const offset = Math.max(0, Math.floor(Number(url.searchParams.get("offset")) || 0));
+      return json(res, 200, await spotify.search(url.searchParams.get("q") ?? "", type, offset));
     }
 
     const accountName = url.pathname.match(/^\/api\/sonos\/spotify-account\/(\d{1,6})$/);
