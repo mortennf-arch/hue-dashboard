@@ -357,3 +357,35 @@ details.more > summary { margin-top: 0; font-size: 12px; }
 .bin-type { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border-2); font-size: 13px; font-weight: 600; }
 .bin-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bin); }
 @media (max-width: 760px) { .idag-panel { grid-template-columns: 1fr; } .wx-hours { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+/* ---------- Musikk: fremdrift, kø og søk som på kjøkkennettbrettet ---------- */
+.np-progress { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.np-progress .np-time:last-child { text-align: right; }
+.np-queue { list-style: none; margin: 0; padding: 6px 0 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
+.queue-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 6px; border: 0; border-radius: 8px; background: transparent; text-align: left; min-width: 0; }
+.queue-item:hover { background: var(--surface-2); }
+.row-art { width: 44px; height: 44px; flex-shrink: 0; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.row-art.mini { width: 32px; height: 32px; border-radius: 4px; }
+.row-art img, .top-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.row-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.row-text strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-text span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filters { flex-wrap: wrap; align-self: flex-start; }
+.results { display: flex; flex-direction: column; gap: 16px; }
+.result-section { display: flex; flex-direction: column; gap: 8px; }
+.result-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.result-head h3 { margin: 0; font-size: 15px; }
+.link { border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 4px 6px; }
+.top-hit { display: flex; align-items: center; gap: 16px; padding: 12px; border-radius: 14px; border: 1px solid var(--border-2); background: var(--surface-2); text-align: left; }
+.top-hit:hover, .row:hover { border-color: #4A5160; }
+.top-art { width: 88px; height: 88px; flex-shrink: 0; border-radius: 10px; background: var(--bg); overflow: hidden; }
+.top-art.round, .fav-art.round { border-radius: 50%; }
+.top-hit small { font-size: 12px; color: var(--accent); font-weight: 600; }
+.top-hit .row-text strong { font-size: 20px; }
+.rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); text-align: left; min-width: 0; }
+.row:disabled, .top-hit:disabled { opacity: 0.6; cursor: progress; }
+.row-num { width: 18px; flex-shrink: 0; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.artist-head { display: flex; align-items: center; gap: 16px; }
+.artist-head h3 { margin: 0 0 8px; font-size: 24px; }
+.back, .more-btn { align-self: flex-start; }

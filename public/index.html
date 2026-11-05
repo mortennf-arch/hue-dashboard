@@ -258,8 +258,15 @@
         <label class="field"><span>Søk i Spotify</span>
           <input type="search" class="text-in search-in" id="spotify-q" placeholder="Artist, låt, album eller spilleliste" autocomplete="off" enterkeyhint="search">
         </label>
+        <div class="segmented filters" role="group" aria-label="Vis treff" id="spotify-filters">
+          <button type="button" data-filter="" aria-pressed="true">Alt</button>
+          <button type="button" data-filter="artist" aria-pressed="false">Artister</button>
+          <button type="button" data-filter="track" aria-pressed="false">Sanger</button>
+          <button type="button" data-filter="album" aria-pressed="false">Album</button>
+          <button type="button" data-filter="playlist" aria-pressed="false">Spillelister</button>
+        </div>
         <p class="hint" id="spotify-hint" hidden></p>
-        <div class="fav-grid" id="spotify-results"></div>
+        <div class="results" id="spotify-results"></div>
       </div>
       <h3 class="sub-h" id="sonos-fav-head">Favoritter</h3>
       <p class="hint" id="sonos-fav-hint"></p>
