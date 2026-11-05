@@ -12,5 +12,7 @@ services:
       TZ: Europe/Oslo
       HUE_BRIDGE_IP: "192.168.1.50"   # ENDRE: broens faste IP-adresse
       SONOS_IP: "192.168.1.60"        # ENDRE: IP-adressen til én Sonos-høyttaler (fjern linjen hvis du ikke har Sonos)
+      # VERISURE_USERNAME: "din@epost.no"   # valgfritt: Verisure-innlogging, se docs/truenas.md
+      # VERISURE_PASSWORD: "..."
     volumes:
       - /mnt/tank/apps/hue-dashboard:/data   # ENDRE: stien til datasettet ditt

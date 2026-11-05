@@ -272,3 +272,25 @@ details.more > summary { margin-top: 0; font-size: 12px; }
 .accounts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .accounts-label { font-size: 13px; color: var(--muted); }
 .accounts .segmented button { min-height: 44px; font-size: 15px; padding: 8px 16px; }
+
+/* Verisure */
+.vs-updated { font-size: 12px; color: var(--muted); }
+.vs-arm { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.vs-arm strong { font-size: 22px; font-weight: 600; }
+.vs-arm.armed strong { color: var(--accent); }
+.vs-arm span { font-size: 13px; color: var(--muted); }
+.vs-sub { font-size: 12px; color: var(--muted); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.vs-login { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text-2); }
+.vs-login form { display: flex; gap: 8px; flex-wrap: wrap; }
+.vs-login input { width: 9em; }
+.vs-login .err { color: var(--bad); }
+.climate-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.climate-list li { display: flex; align-items: baseline; gap: 12px; padding: 8px 0; border-top: 1px solid #222731; font-size: 14px; }
+.climate-list li:first-child { border-top: 0; }
+.climate-list .name { flex: 1; min-width: 0; color: var(--text-2); }
+.climate-list .name small { display: block; font-size: 12px; color: var(--muted); }
+.climate-list .temp { font-weight: 600; font-variant-numeric: tabular-nums; }
+.climate-list .hum { width: 3.5em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.event-list .vs-alarm .text { color: var(--bad); }
+.event-list .vs-day { font-size: 12px; color: var(--muted); padding-top: 12px; }
+.vs-login p { margin: 0; }

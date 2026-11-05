@@ -406,6 +406,175 @@ function renderHealth() {
   );
 }
 
+// ---------- Verisure (bare lesing) ----------
+
+let verisure = null;
+let vsBusy = false;
+let vsError = "";
+
+const ARM_TEXT = { DISARMED: "Avslått", ARMED_HOME: "Skallsikret", ARMED_AWAY: "Tilkoblet", UNKNOWN: "Ukjent" };
+const VIA_TEXT = { CODE: "med kode", TAG: "med brikke", APP: "fra appen", AUTO: "automatisk", ALARM_PANEL: "på panelet", KEYPAD: "på tastaturet" };
+const EVENT_TEXT = {
+  ARM: "Tilkoblet", DISARM: "Avslått", FIRE: "Brannalarm", WATER: "Vannlekkasje", INTRUSION: "Innbrudd", SOS: "SOS",
+  TECHNICAL: "Teknisk melding", WARNING: "Advarsel", LOCK: "Låst", UNLOCK: "Låst opp", CLIMATE: "Temperatur", ANIMAL: "Dyr",
+};
+const ALARM_CATS = new Set(["FIRE", "WATER", "INTRUSION", "SOS"]);
+const dayFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "long", day: "numeric", month: "long" });
+const fmtShort = (iso) => (iso ? shortTime.format(new Date(iso)) : "");
+
+/** «kl. 14:05» i dag, ellers «tirsdag 14:05». */
+function when(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? `kl. ${shortTime.format(d)}` : `${new Intl.DateTimeFormat("nb-NO", { weekday: "long" }).format(d)} ${shortTime.format(d)}`;
+}
+
+function vsEventText(e) {
+  let text = EVENT_TEXT[e.category] ?? e.category.toLowerCase();
+  if (e.category === "ARM" && e.type) text = e.type.includes("HOME") ? "Skallsikret" : "Tilkoblet";
+  const where = e.device && e.area ? `${e.device}, ${e.area}` : e.device || e.area;
+  return [text, where, e.value, e.user ? `av ${e.user}` : ""].filter(Boolean).join(" · ");
+}
+
+function renderVerisureLogin(body) {
+  const st = verisure.status;
+  if (st === "connecting") {
+    body.replaceChildren(h("p", { class: "empty" }, "Kobler til Verisure ..."));
+    return;
+  }
+  if (st === "error" && !verisure.updated) {
+    body.replaceChildren(
+      h("div", { class: "vs-login" }, h("p", { class: "err" }, verisure.reason || "Får ikke kontakt med Verisure."),
+        h("div", {}, h("button", { type: "button", class: "small", disabled: vsBusy, onclick: () => vsAction("/api/verisure/refresh") }, "Prøv igjen"))),
+    );
+    return;
+  }
+  if (st === "mfa_needed") {
+    body.replaceChildren(
+      h("div", { class: "vs-login" },
+        h("p", {}, "Verisure-kontoen har tofaktor. Trykk under, så sender Verisure en kode. Du trenger bare å gjøre dette én gang."),
+        vsError ? h("p", { class: "err" }, vsError) : null,
+        h("div", {}, h("button", { type: "button", class: "primary", disabled: vsBusy, onclick: () => vsAction("/api/verisure/mfa/request") }, "Send kode"))),
+    );
+    return;
+  }
+  if (st === "mfa_sent") {
+    const input = h("input", { type: "text", class: "text-in", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "8", "aria-label": "Kode fra Verisure", placeholder: "Kode" });
+    const form = h("form", {
+      onsubmit: (e) => {
+        e.preventDefault();
+        vsAction("/api/verisure/mfa/validate", { code: input.value });
+      },
+    }, input, h("button", { type: "submit", class: "primary", disabled: vsBusy }, "Logg inn"));
+    body.replaceChildren(
+      h("div", { class: "vs-login" },
+        h("p", {}, `${verisure.reason || "Koden er sendt."} Skriv den inn her.`),
+        vsError ? h("p", { class: "err" }, vsError) : null,
+        form,
+        h("div", {}, h("button", { type: "button", class: "small", disabled: vsBusy, onclick: () => vsAction("/api/verisure/mfa/request") }, "Send ny kode"))),
+    );
+    requestAnimationFrame(() => input.focus());
+  }
+}
+
+async function vsAction(url, body) {
+  vsBusy = true;
+  vsError = "";
+  scheduleRender();
+  try {
+    const res = await fetch(url, { method: "POST", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  } catch (err) {
+    vsError = err.message;
+  } finally {
+    vsBusy = false;
+    scheduleRender();
+  }
+}
+
+let vsLoginKey = "";
+function renderVerisure() {
+  const card = document.getElementById("vs-card");
+  const climateCard = document.getElementById("vs-climate-card");
+  const eventsCard = document.getElementById("vs-events-card");
+  card.hidden = !verisure;
+  const hasData = Boolean(verisure?.updated);
+  climateCard.hidden = !hasData || !verisure.climate.length;
+  eventsCard.hidden = !hasData;
+  if (!verisure) return;
+
+  const body = document.getElementById("vs-body");
+  document.getElementById("vs-updated").textContent = hasData
+    ? `${verisure.status === "error" ? "Sist oppdatert" : "Oppdatert"} ${fmtShort(verisure.updated)}`
+    : "";
+  if (!hasData || verisure.status === "mfa_needed" || verisure.status === "mfa_sent") {
+    // Tegner ikke skjemaet på nytt mens noen skriver inn koden.
+    const key = `${verisure.status}|${verisure.reason}|${vsBusy}|${vsError}`;
+    if (key !== vsLoginKey) {
+      vsLoginKey = key;
+      renderVerisureLogin(body);
+    }
+    return;
+  }
+  vsLoginKey = "";
+
+  const parts = [];
+  const arm = verisure.arm;
+  if (arm) {
+    const by = [arm.name ? `av ${arm.name}` : "", VIA_TEXT[arm.changedVia] ?? ""].filter(Boolean).join(" ");
+    parts.push(h("div", { class: arm.state === "DISARMED" ? "vs-arm" : "vs-arm armed" },
+      h("strong", {}, ARM_TEXT[arm.state] ?? arm.state),
+      h("span", {}, [arm.date ? `Siden ${when(arm.date)}` : "", by].filter(Boolean).join(" "))));
+  }
+  if (verisure.status === "error") parts.push(h("p", { class: "empty" }, `Fikk ikke oppdatert: ${verisure.reason}`));
+
+  const tiles = [];
+  for (const d of verisure.doors) {
+    tiles.push(tile(d.area || d.id, d.open ? "Åpen" : "Lukket", d.time ? `Endret ${when(d.time)}` : "", d.open));
+  }
+  for (const l of verisure.locks) {
+    const state = l.locked === true ? "Låst" : l.locked === false ? "Ulåst" : "Ukjent";
+    const sub = [l.door === "OPEN" ? "Døra står åpen" : "", l.time ? when(l.time) : "", l.user ? `av ${l.user}` : ""].filter(Boolean).join(" · ");
+    tiles.push(tile(`${l.area || "Lås"} (lås)`, state, sub, l.locked === false));
+  }
+  for (const p of verisure.plugs) tiles.push(tile(`${p.area || p.id} (plugg)`, p.on ? "På" : "Av", ""));
+  if (tiles.length) parts.push(h("div", { class: "tiles" }, tiles));
+
+  if (verisure.people.length) {
+    parts.push(h("p", { class: "vs-sub" }, "Hvem er hjemme"));
+    parts.push(h("ul", { class: "health-list" }, verisure.people.map((p) =>
+      h("li", {}, `${p.name} `, h("span", {}, p.home === true ? "hjemme" : p.home === false ? "borte" : "ukjent")))));
+  }
+  if (!parts.length) parts.push(h("p", { class: "empty" }, "Ingen enheter funnet på Verisure-kontoen."));
+  body.replaceChildren(...parts);
+
+  const climate = [...verisure.climate].sort((a, b) => collator.compare(a.area, b.area));
+  document.getElementById("vs-climate").replaceChildren(...climate.map((c) =>
+    h("li", {},
+      h("span", { class: "name" }, c.area || c.id, c.device ? h("small", {}, c.device) : null),
+      h("span", { class: "temp" }, c.temperature == null ? "–" : `${c.temperature.toFixed(1).replace(".", ",")} °C`),
+      h("span", { class: "hum" }, c.humidity == null ? "" : `${Math.round(c.humidity)} %`))));
+
+  const list = document.getElementById("vs-events");
+  if (!verisure.events.length) {
+    list.replaceChildren(h("li", { class: "empty" }, "Ingen hendelser."));
+    return;
+  }
+  const items = [];
+  let lastDay = "";
+  for (const e of verisure.events) {
+    const day = new Date(e.time).toDateString();
+    if (day !== lastDay) {
+      lastDay = day;
+      items.push(h("li", { class: "vs-day" }, day === new Date().toDateString() ? "I dag" : dayFmt.format(new Date(e.time))));
+    }
+    items.push(h("li", { class: ALARM_CATS.has(e.category) ? "vs-alarm" : "" }, h("time", { datetime: e.time }, fmtShort(e.time)), h("span", { class: "text" }, vsEventText(e))));
+  }
+  list.replaceChildren(...items);
+}
+
 // ---------- Detaljvisning for ett rom eller én sone ----------
 
 let openGroupId = null;
@@ -1577,11 +1746,18 @@ function renderTabs() {
   const issues =
     all("device_power").filter((p) => p.power_state && (p.power_state.battery_state !== "normal" || p.power_state.battery_level <= 15)).length +
     all("zigbee_connectivity").filter((z) => z.status && z.status !== "connected").length;
-  if (ring && new Date(ring.time).toDateString() === today) {
+  const vsAlarm = (verisure?.events ?? []).find((e) => ALARM_CATS.has(e.category) && Date.now() - new Date(e.time).getTime() < 24 * 3600_000);
+  if (vsAlarm) {
+    setStatus("status-sikkerhet", `${EVENT_TEXT[vsAlarm.category]} ${when(vsAlarm.time)}`, "alert");
+  } else if (ring && new Date(ring.time).toDateString() === today) {
     const recent = Date.now() - new Date(ring.time).getTime() < BELL_WINDOW_MS;
     setStatus("status-sikkerhet", `Det ringte på kl. ${shortTime.format(new Date(ring.time))}`, recent ? "alert" : "");
   } else if (issues) setStatus("status-sikkerhet", `${issues} ting å sjekke`);
-  else setStatus("status-sikkerhet", "Ingen har ringt på i dag");
+  else if (verisure?.arm && verisure.status === "ok") {
+    const open = verisure.doors.filter((d) => d.open).length;
+    const armText = `Alarm ${(ARM_TEXT[verisure.arm.state] ?? "").toLowerCase()}`;
+    setStatus("status-sikkerhet", open ? `${armText} · ${open} åpen` : armText, verisure.arm.state === "DISARMED" ? "" : "active");
+  } else setStatus("status-sikkerhet", "Ingen har ringt på i dag");
 }
 
 {
@@ -1616,6 +1792,7 @@ function scheduleRender() {
     renderSecurity();
     renderEvents();
     renderHealth();
+    renderVerisure();
     renderStatus();
     renderBell();
     renderDetail();
@@ -1667,12 +1844,17 @@ function connect() {
     bridge = snap.bridge;
     sonos = snap.sonos ?? null;
     spotifyOn = Boolean(snap.spotify);
+    verisure = snap.verisure ?? null;
     eventItems.length = 0;
     addEvents(snap.recent ?? [], false);
     scheduleRender();
   });
   es.addEventListener("sonos", (e) => {
     sonos = JSON.parse(e.data);
+    scheduleRender();
+  });
+  es.addEventListener("verisure", (e) => {
+    verisure = JSON.parse(e.data);
     scheduleRender();
   });
   es.addEventListener("bridge", (e) => {

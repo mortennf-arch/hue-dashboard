@@ -112,6 +112,25 @@ Nøklene brukes bare til å søke. Musikken spilles gjennom Spotify-kontoen som 
 
 Har dere flere Spotify-kontoer i Sonos, for eksempel én hver, dukker et valg «Spill fra» opp over søkefeltet. Hver konto blir med når den har minst én favoritt i Sonos. Trykk «Gi navn» for å kalle kontoene for eksempel «Morten» og «Kari». Navnene lagres i `sonos.json`, og hver skjerm husker hvilken konto som sist ble valgt.
 
+## Verisure (valgfritt)
+
+Sikkerhet-fanen kan vise alarmstatus, dører og vinduer, smartlås, temperatur og fukt fra røykvarslerne og Verisure-loggen. Dashbordet bare leser. Det kan ikke slå alarmen av eller på.
+
+Verisure har ikke noe offisielt API, så dette bruker det samme som Verisure-appen, slik Home Assistant gjør. Det kan slutte å virke hvis Verisure endrer noe.
+
+1. I TrueNAS: **Apps > hue-dashboard > Edit**. Legg til under `environment`:
+
+   ```yaml
+         VERISURE_USERNAME: "din@epost.no"
+         VERISURE_PASSWORD: "passordet"
+   ```
+
+   Det er det samme som du logger inn i Verisure-appen med. Vil du heller ha en egen bruker for dashbordet, kan du invitere en ny bruker i Verisure-appen og bruke den.
+2. Trykk **Save**, og åpne Sikkerhet-fanen. Har kontoen tofaktor, står det «Send kode». Trykk på den, og skriv inn koden du får på SMS. Serveren husker innloggingen i `verisure.json` i datasettet, så du trenger ikke kode igjen.
+3. Loggen viser for eksempel `Verisure «Hjemme»: 3 dør/vindu, 4 temperaturmålere`. Det er enhetene dashbordet fant.
+
+Dataene hentes hvert 5. minutt. Verisure sperrer kontoer som spør for ofte, så ikke sett det lavere enn nødvendig (`VERISURE_POLL_S`, minst 60).
+
 ## Kjøkkennettbrett (valgfritt)
 
 En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har tre faner: Musikk, Lys og Sikkerhet.

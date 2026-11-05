@@ -73,8 +73,20 @@
 
     <section role="tabpanel" id="panel-sikkerhet" aria-labelledby="tab-sikkerhet" class="security-panel" hidden>
       <div class="side">
+        <section class="card" aria-labelledby="vs-h" id="vs-card" hidden>
+          <div class="section-head">
+            <h2 id="vs-h">Verisure</h2>
+            <div class="grow"></div>
+            <span class="vs-updated" id="vs-updated"></span>
+          </div>
+          <div id="vs-body"></div>
+        </section>
+        <section class="card" aria-labelledby="vs-climate-h" id="vs-climate-card" hidden>
+          <h2 id="vs-climate-h">Temperatur og fukt</h2>
+          <ul class="climate-list" id="vs-climate"></ul>
+        </section>
         <section class="card" aria-labelledby="sec-h">
-          <h2 id="sec-h">Sikkerhet</h2>
+          <h2 id="sec-h">Hue-enheter</h2>
           <div class="tiles" id="security"></div>
         </section>
         <section class="card" aria-labelledby="health-h">
@@ -82,14 +94,20 @@
           <div id="health"></div>
         </section>
       </div>
+      <div class="side">
       <section class="card events" aria-labelledby="ev-h">
         <div class="section-head">
-          <h2 id="ev-h">Hendelser</h2>
+          <h2 id="ev-h">Hue-hendelser</h2>
           <div class="grow"></div>
           <span class="live" id="live"><span class="dot"></span>Live</span>
         </div>
         <ol class="event-list" id="events"></ol>
       </section>
+      <section class="card events" aria-labelledby="vs-ev-h" id="vs-events-card" hidden>
+        <h2 id="vs-ev-h">Verisure-logg</h2>
+        <ol class="event-list" id="vs-events"></ol>
+      </section>
+      </div>
     </section>
   </div>
   <dialog id="detail" aria-labelledby="detail-title">
