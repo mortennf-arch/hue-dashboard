@@ -7,6 +7,7 @@ import type { ResourceStore } from "./store.js";
 import type { SonosManager, SonosState } from "./sonos.js";
 import type { SpotifyClient } from "./spotify.js";
 import type { VerisureClient, VerisureState } from "./verisure.js";
+import type { WeatherService } from "./weather.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -91,8 +92,9 @@ export async function startWebServer(opts: {
   sonos?: SonosManager;
   spotify?: SpotifyClient;
   verisure?: VerisureClient;
+  weather?: WeatherService;
 }): Promise<WebServer> {
-  const { client, store, sonos, spotify, verisure } = opts;
+  const { client, store, sonos, spotify, verisure, weather } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
@@ -348,6 +350,11 @@ export async function startWebServer(opts: {
         return json(res, 202, { ok: true });
       }
       return json(res, 404, { error: "Ukjent adresse" });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/weather") {
+      if (!weather?.configured) return json(res, 200, { available: false, configured: false });
+      return json(res, 200, { configured: true, ...(await weather.state()) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/all-off") {

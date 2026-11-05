@@ -133,12 +133,28 @@ Trykk på et rom under «Temperatur og fukt» for å se grafer for døgnet, uka,
 
 Dataene hentes hvert 5. minutt. Verisure sperrer kontoer som spør for ofte, så ikke sett det lavere enn nødvendig (`VERISURE_POLL_S`, minst 60).
 
+## Været fra yr (valgfritt)
+
+Fanen «I dag» viser været nå, de neste timene og de neste dagene, både i dashbordet og på kjøkkennettbrettet. Varselet kommer fra Meteorologisk institutt (yr) og krever ingen nøkkel.
+
+1. I TrueNAS: **Apps > hue-dashboard > Edit**. Legg til adressen deres under `environment`:
+
+   ```yaml
+         HJEM_ADRESSE: "Gatenavn 1, 1234 Sted"
+   ```
+
+   Adressen slås opp hos Kartverket én gang og huskes i `hjem.json` i datasettet. Den brukes også til tømmekalenderen.
+2. Trykk **Save**. Fanen «I dag» dukker opp når appen har startet.
+
+Vil du heller oppgi et punkt på kartet, bruk `HJEM_POSISJON: "59.91,10.75"` (breddegrad, lengdegrad). Finner ikke Kartverket adressen, står det i loggen og i fanen.
+
 ## Kjøkkennettbrett (valgfritt)
 
-En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har tre faner: Musikk, Lys og Sikkerhet.
+En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har fanene Musikk, Lys, I dag og Sikkerhet.
 
 - **Musikk:** rommene til venstre kommer rett fra Sonos. Rom som er merket med gult, spiller sammen. Trykk på et rom for å legge det til eller ta det ut. Med flere rom valgt får hvert rom sin egen volumknapp, pluss «Alle rom».
 - **Lys:** av/på, lysstyrke og scener for hvert Hue-rom.
+- **I dag:** været fra yr nå, de neste timene og dagene. Temperaturen står også øverst til høyre, og et trykk på den åpner fanen. Krever `HJEM_ADRESSE`, se over.
 - **Dørklokke:** når noen ringer på, dekker et varsel hele skjermen med en lyd, uansett hvilken fane som er åpen.
 
 **Oppsett på et Android-nettbrett, uten ekstra apper:**

@@ -36,6 +36,9 @@
       <button type="button" role="tab" id="tab-musikk" data-tab="musikk" aria-controls="panel-musikk" aria-selected="false" hidden>
         <span class="tab-name">Musikk</span><span class="tab-status" id="status-musikk"></span>
       </button>
+      <button type="button" role="tab" id="tab-idag" data-tab="idag" aria-controls="panel-idag" aria-selected="false" hidden>
+        <span class="tab-name">I dag</span><span class="tab-status" id="status-idag"></span>
+      </button>
       <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="panel-sikkerhet" aria-selected="false">
         <span class="tab-name">Sikkerhet</span><span class="tab-status" id="status-sikkerhet"></span>
       </button>
@@ -69,6 +72,27 @@
       </div>
       <p class="hint" id="music-hint" hidden></p>
       <div class="music-grid" id="music-groups"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-idag" aria-labelledby="tab-idag" class="idag-panel" hidden>
+      <div class="side">
+        <section class="card wx-now" aria-labelledby="wx-h">
+          <h2 id="wx-h">Været<span id="wx-place"></span></h2>
+          <div id="wx-now-body" class="wx-now-body"></div>
+          <p class="hint" id="wx-hint" hidden></p>
+        </section>
+      </div>
+      <div class="side">
+        <section class="card" aria-labelledby="wx-hours-h">
+          <h2 id="wx-hours-h">Neste timer</h2>
+          <ol id="wx-hours" class="wx-hours"></ol>
+        </section>
+        <section class="card" aria-labelledby="wx-days-h">
+          <h2 id="wx-days-h">Neste dager</h2>
+          <ol id="wx-days" class="wx-days"></ol>
+          <p class="wx-credit">Værdata fra MET Norway (yr)</p>
+        </section>
+      </div>
     </section>
 
     <section role="tabpanel" id="panel-sikkerhet" aria-labelledby="tab-sikkerhet" class="security-panel" hidden>
@@ -254,6 +278,7 @@
       </div>
     </div>
   </dialog>
+  <script src="weather.js"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

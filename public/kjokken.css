@@ -17,6 +17,10 @@
   --bell-border: #6B4A16;
   --bell-text: #FFE2AE;
   --track: #323844;
+  --wx-sun: #F5B544;
+  --wx-rain: #6CB4F0;
+  --wx-snow: #E8EAEE;
+  --wx-cold: #8CC8FF;
 }
 
 * { box-sizing: border-box; }
@@ -197,6 +201,46 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 .k-bell-card strong { font-size: 24px; }
 .k-bell-card span { font-size: 17px; color: var(--muted); }
 
+/* ---------- I dag: været ---------- */
+.wx-icon .wx-sun { color: var(--wx-sun); }
+.wx-icon .wx-moon { color: #C9D0DB; }
+.wx-icon .wx-cloud { color: #C9D0DB; }
+.wx-icon .wx-cloud { fill: var(--surface-2); }
+.wx-icon .wx-light { color: #9AA3B2; }
+.wx-icon .wx-rain { color: var(--wx-rain); }
+.wx-icon .wx-snow { color: var(--wx-snow); fill: var(--wx-snow); }
+.wx-icon .wx-bolt { color: var(--wx-sun); }
+.cold { color: var(--wx-cold); }
+
+.k-wx-chip { gap: 6px; padding: 4px 16px 4px 10px; font-size: 20px; min-height: 48px; }
+.k-wx-chip svg { color: inherit; }
+.k-wx-chip strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.k-idag { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; }
+.k-idag-left, .k-idag-right { display: flex; flex-direction: column; gap: 20px; min-height: 0; }
+.k-idag .k-card { display: flex; flex-direction: column; gap: 14px; }
+.k-wx-now { flex-grow: 1; }
+.k-wx-now-body { display: flex; flex-direction: column; gap: 14px; }
+.k-wx-now-top { display: flex; align-items: center; gap: 16px; }
+.k-wx-now-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.k-wx-temp { font-size: 72px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.k-wx-desc { font-size: 20px; color: var(--text-2); }
+.k-wx-note { margin: 0; font-size: 22px; font-weight: 600; }
+.k-wx-facts { margin: 0; font-size: 17px; color: var(--muted); }
+.k-wx-hours { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.k-wx-hours li { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 0; }
+.k-wx-hours strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.k-wx-h { font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.k-wx-mm { font-size: 14px; color: var(--wx-rain); min-height: 1.2em; white-space: nowrap; }
+.k-wx-days-card { flex-grow: 1; min-height: 0; }
+.k-wx-days { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+.k-wx-days li { display: grid; grid-template-columns: minmax(0, 1fr) 48px 110px 70px; align-items: center; gap: 12px; padding: 3px 0; border-top: 1px solid var(--border); font-size: 19px; }
+.k-wx-days li:first-child { border-top: 0; }
+.k-wx-range { font-variant-numeric: tabular-nums; }
+.k-wx-range span { color: var(--muted); }
+.k-wx-days .k-wx-mm { text-align: right; font-size: 16px; }
+.k-credit { margin: 0; font-size: 13px; color: var(--muted); }
+
 /* ---------- Varsel ---------- */
 .k-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--accent); color: var(--text); padding: 14px 22px; border-radius: 14px; font-size: 18px; font-weight: 600; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); z-index: 5; }
 .k-rooms.nudge .k-label { color: var(--accent); }
@@ -224,7 +268,8 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
   .k-page { height: auto; min-height: 100dvh; }
   .k-top { grid-template-columns: 1fr; justify-items: center; }
   .k-status { justify-content: center; }
-  .k-music { grid-template-columns: 1fr; align-content: start; }
+  .k-music, .k-idag { grid-template-columns: 1fr; align-content: start; }
+  .k-wx-hours { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .k-room-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); overflow: visible; }
   .k-fav-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); overflow: visible; }
   .k-volumes, .k-light-grid { overflow: visible; }
