@@ -66,7 +66,7 @@
           </div>
           <div id="k-progress" class="k-progress" hidden>
             <span id="k-pos">0:00</span>
-            <div class="k-bar" role="progressbar" aria-label="Hvor langt sangen har kommet" aria-valuemin="0" aria-valuemax="100" id="k-bar"><div id="k-bar-fill"></div></div>
+            <input id="k-seek" class="k-seek" type="range" min="0" max="100" step="1" value="0" aria-label="Hopp i sangen">
             <span id="k-dur">0:00</span>
           </div>
           <div class="k-transport">
@@ -78,11 +78,11 @@
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 4 10 8-10 8V4zM19 5v14"/></svg>
             </button>
           </div>
+          <div id="k-volumes" class="k-volumes"></div>
           <section id="k-upnext" class="k-upnext" aria-labelledby="k-upnext-h" hidden>
-            <h3 id="k-upnext-h">Neste</h3>
+            <h3 id="k-upnext-h">Neste i køen</h3>
             <ol id="k-upnext-list"></ol>
           </section>
-          <div id="k-volumes" class="k-volumes"></div>
         </div>
       </section>
 

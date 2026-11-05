@@ -90,12 +90,17 @@ h2 { margin: 0; }
 
 .k-progress { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .k-progress span:last-child { text-align: right; }
-.k-bar { height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; }
-.k-bar div { height: 100%; width: 0; background: var(--accent); border-radius: 999px; }
-.k-upnext { display: flex; flex-direction: column; gap: 8px; }
+.k-seek { height: 36px; }
+.k-seek::-webkit-slider-runnable-track { height: 6px; }
+.k-seek::-moz-range-track { height: 6px; }
+.k-seek::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -7px; }
+.k-seek::-moz-range-thumb { width: 20px; height: 20px; }
+.k-upnext { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
 .k-upnext h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 .k-upnext ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.k-upnext li { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.k-upnext li { min-width: 0; }
+.k-queue-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 8px; border: 0; border-radius: 12px; background: transparent; text-align: left; min-width: 0; }
+.k-queue-item:active { background: var(--surface-2); }
 .k-upnext .k-row-text strong { font-size: 15px; }
 .k-transport { display: flex; align-items: center; justify-content: center; gap: 28px; }
 .k-round { width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); display: flex; align-items: center; justify-content: center; }
@@ -229,3 +234,18 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
   .k-tabs button { padding: 0 12px; font-size: 16px; gap: 6px; }
   .k-track { flex-direction: column; align-items: flex-start; }
 }
+
+/* Spilles nå ruller som helhet, så køen under volumet får plass. */
+.k-now-body > * { flex-shrink: 0; }
+.k-now .k-volumes { overflow: visible; }
+
+/* ---------- Artistside ---------- */
+.k-back { align-self: flex-start; display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 16px 0 10px; border-radius: 999px; border: 1px solid var(--border-2); background: var(--surface); font-weight: 600; }
+.k-artist-head { display: flex; align-items: center; gap: 22px; }
+.k-artist-head .k-top-art { width: 140px; height: 140px; }
+.k-artist-head h3 { margin: 0; font-size: 34px; letter-spacing: -0.01em; }
+.k-artist-head div { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; min-width: 0; }
+.k-primary { min-height: 52px; padding: 0 22px; border-radius: 999px; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 17px; font-weight: 700; }
+.k-primary:active { background: #FFC968; }
+.k-num { width: 22px; flex-shrink: 0; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.k-fav-art.round { border-radius: 50%; }

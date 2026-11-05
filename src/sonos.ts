@@ -46,6 +46,8 @@ export interface SonosGroup {
 }
 
 export interface QueueItem {
+  /** Plassen i køen, fra 1. Brukes for å hoppe rett til sangen. */
+  number: number;
   title: string;
   artist: string;
   art: string;
@@ -82,7 +84,7 @@ const POLL_MS = 2000;
 const TOPOLOGY_MS = 10_000;
 const FAVORITES_MS = 60_000;
 const QUEUE_MS = 30_000;
-const UP_NEXT = 5;
+const UP_NEXT = 100;
 const TIMEOUT_MS = 4000;
 
 const SERVICES = {
@@ -204,12 +206,12 @@ export function parseTrack(meta: string, mediaMeta: string, host: string, rel: s
 }
 
 /** Leser sangene i køen (Q:0) fra ContentDirectory. */
-export function parseQueue(didl: string, host: string): QueueItem[] {
+export function parseQueue(didl: string, host: string, first = 1): QueueItem[] {
   const out: QueueItem[] = [];
   for (const m of didl.matchAll(/<item\s[^>]*>([\s\S]*?)<\/item>/g)) {
     const title = tag(m[1], "title");
     if (!title) continue;
-    out.push({ title, artist: tag(m[1], "creator") || tag(m[1], "albumArtist"), art: artUrl(tag(m[1], "albumArtURI"), host) });
+    out.push({ number: first + out.length, title, artist: tag(m[1], "creator") || tag(m[1], "albumArtist"), art: artUrl(tag(m[1], "albumArtURI"), host) });
   }
   return out;
 }
@@ -611,7 +613,7 @@ export class SonosManager {
         RequestedCount: UP_NEXT,
         SortCriteria: "",
       });
-      const items = parseQueue(tag(xml, "Result"), host);
+      const items = parseQueue(tag(xml, "Result"), host, track + 1);
       this.queues.set(coordinator, { key, at: Date.now(), items });
       return items;
     } catch {
@@ -667,6 +669,7 @@ export class SonosManager {
     id: string,
     title: string,
     sn?: string,
+    then: { id: string; title: string }[] = [],
   ): Promise<void> {
     const g = this.group(groupId);
     if (!g) throw new Error("Fant ikke rommet");
@@ -684,6 +687,46 @@ export class SonosManager {
     }
     const item = spotifyItem(type, id, title, acc);
     await this.playUri(g, item.uri, item.meta);
+    // Flere sanger etter den første, f.eks. resten av en artists mest spilte. Musikken starter med en gang,
+    // og resten legges i køen etterpå.
+    if (type === "track" && then.length && !playsDirect(item.uri)) {
+      const host = this.coordinatorHost(g);
+      const account = acc;
+      void (async () => {
+        for (const t of then) {
+          const next = spotifyItem("track", t.id, t.title, account);
+          await soap(host, "AVTransport", "AddURIToQueue", {
+            InstanceID: 0,
+            EnqueuedURI: next.uri,
+            EnqueuedURIMetaData: next.meta,
+            DesiredFirstTrackNumberEnqueued: 0,
+            EnqueueAsNext: 0,
+          });
+        }
+        this.queues.delete(g.coordinator);
+        this.refreshSoon();
+      })().catch((err: Error) => console.error("Sonos: kunne ikke legge sanger i køen:", err.message));
+    }
+  }
+
+  /** Hopper til et sted i sangen som spilles, i sekunder. */
+  async seek(groupId: string, seconds: number): Promise<void> {
+    const g = this.group(groupId);
+    if (!g) throw new Error("Fant ikke rommet");
+    const s = Math.max(0, Math.floor(seconds));
+    const target = `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    await soap(this.coordinatorHost(g), "AVTransport", "Seek", { InstanceID: 0, Unit: "REL_TIME", Target: target });
+    this.refreshSoon();
+  }
+
+  /** Hopper til en sang i køen (nummer fra 1) og spiller den. */
+  async playTrack(groupId: string, number: number): Promise<void> {
+    const g = this.group(groupId);
+    if (!g) throw new Error("Fant ikke rommet");
+    const host = this.coordinatorHost(g);
+    await soap(host, "AVTransport", "Seek", { InstanceID: 0, Unit: "TRACK_NR", Target: Math.max(1, Math.floor(number)) });
+    await soap(host, "AVTransport", "Play", { InstanceID: 0, Speed: 1 });
+    this.refreshSoon();
   }
 
   private async playUri(g: SonosGroup, uri: string, meta: string): Promise<void> {

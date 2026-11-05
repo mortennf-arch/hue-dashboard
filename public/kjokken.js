@@ -405,6 +405,9 @@ const fmtDur = (sec) => {
   return hh ? `${hh}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
 };
 
+// Mens hun drar i fremdriftslinjen, eller rett etter, skal den ikke hoppe tilbake til det høyttalerne sa sist.
+let seekHold = null; // { value, until }
+
 /** Fremdriftslinjen. Høyttalerne spørres hvert andre sekund, og imens regnes tiden videre her. */
 function renderProgress(g) {
   const box = $("k-progress");
@@ -414,11 +417,17 @@ function renderProgress(g) {
     return;
   }
   box.hidden = false;
+  const seek = $("k-seek");
   const playing = g.state === "playing";
-  const pos = Math.min(t.duration, t.position + (playing ? (Date.now() - sonosAt) / 1000 : 0));
-  const pct = (pos / t.duration) * 100;
-  $("k-bar-fill").style.width = `${pct}%`;
-  $("k-bar").setAttribute("aria-valuenow", String(Math.round(pct)));
+  let pos = Math.min(t.duration, t.position + (playing ? (Date.now() - sonosAt) / 1000 : 0));
+  // Når høyttalerne melder omtrent samme sted som hun dro til, slippes holdet med en gang.
+  if (seekHold && seekHold.until !== Infinity && Math.abs(pos - seekHold.value) < 3) seekHold = null;
+  if (seekHold && (seekHold.until === Infinity || Date.now() < seekHold.until)) pos = seekHold.value;
+  else seekHold = null;
+  seek.max = String(t.duration);
+  seek.value = String(Math.round(pos));
+  seek.style.setProperty("--fill", `${(pos / t.duration) * 100}%`);
+  seek.setAttribute("aria-valuetext", `${fmtDur(pos)} av ${fmtDur(t.duration)}`);
   $("k-pos").textContent = fmtDur(pos);
   $("k-dur").textContent = fmtDur(t.duration);
 }
@@ -426,10 +435,28 @@ setInterval(() => {
   if (tab === "musikk" && !document.hidden) renderProgress(currentGroup());
 }, 1000);
 
+{
+  const seek = $("k-seek");
+  seek.addEventListener("pointerdown", () => (seekHold = { value: Number(seek.value), until: Infinity }));
+  seek.addEventListener("input", () => {
+    seekHold = { value: Number(seek.value), until: Infinity };
+    renderProgress(currentGroup());
+  });
+  seek.addEventListener("change", async () => {
+    const g = currentGroup();
+    const value = Number(seek.value);
+    // Hold igjen den nye plassen til høyttalerne har rukket å melde den.
+    seekHold = { value, until: Date.now() + 4000 };
+    if (g) await api("POST", sonosUrl("group", g.id, "seek"), { position: value });
+  });
+}
+
+/** Hele resten av køen, under volumet. Et trykk på en sang hopper dit. */
 function renderUpNext(g) {
   const box = $("k-upnext");
-  const items = (g?.upNext ?? []).slice(0, g && g.members.length > 2 ? 1 : 3);
+  const items = g?.upNext ?? [];
   box.hidden = !items.length;
+  $("k-upnext-h").textContent = items.length ? `Neste i køen (${items.length}${items.length >= 100 ? "+" : ""})` : "Neste i køen";
   const list = $("k-upnext-list");
   const key = JSON.stringify(items);
   if (list.dataset.key === key) return;
@@ -439,8 +466,20 @@ function renderUpNext(g) {
       h(
         "li",
         {},
-        h("span", { class: "k-row-art small", "aria-hidden": "true" }, artImg(it.art)),
-        h("span", { class: "k-row-text" }, h("strong", {}, it.title), it.artist ? h("span", {}, it.artist) : null),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "k-queue-item",
+            "aria-label": `Spill ${it.title}${it.artist ? ` av ${it.artist}` : ""}`,
+            onclick: () => {
+              const grp = currentGroup();
+              if (grp) api("POST", sonosUrl("group", grp.id, "track"), { number: it.number });
+            },
+          },
+          h("span", { class: "k-row-art small", "aria-hidden": "true" }, artImg(it.art)),
+          h("span", { class: "k-row-text" }, h("strong", {}, it.title), it.artist ? h("span", {}, it.artist) : null),
+        ),
       ),
     ),
   );
@@ -564,6 +603,17 @@ const playHit = (r) => (g) => api("POST", sonosUrl("group", g.id, "spotify"), { 
 const closeSearch = () => $("k-search").close();
 
 function hitTile(r) {
+  // En artist åpner artistsiden. Alt annet spilles med en gang.
+  if (r.type === "artist") {
+    const btn = h(
+      "button",
+      { type: "button", class: "k-fav", onclick: () => showArtist(r.id) },
+      h("span", { class: "k-fav-art round", "aria-hidden": "true" }, artImg(r.art)),
+      h("strong", {}, r.title),
+      h("span", {}, "Artist"),
+    );
+    return btn;
+  }
   return musicTile(r.title, r.subtitle, r.art, playHit(r), closeSearch);
 }
 
@@ -598,6 +648,7 @@ function topHit(r) {
       type: "button",
       class: "k-top-hit",
       onclick: async () => {
+        if (r.type === "artist") return showArtist(r.id);
         btn.disabled = true;
         const ok = await playIn(playHit(r));
         btn.disabled = false;
@@ -610,10 +661,104 @@ function topHit(r) {
       { class: "k-row-text" },
       h("small", {}, `Beste treff · ${TYPE_NAME[r.type]}`),
       h("strong", {}, r.title),
-      h("span", {}, r.type === "artist" ? "Spiller artistradio" : r.subtitle),
+      h("span", {}, r.type === "artist" ? "Se sanger, album og artistradio" : r.subtitle),
     ),
   );
   return btn;
+}
+
+// ---------- Artistside ----------
+
+let savedResults = null; // søketreffene som var der før artistsiden ble åpnet
+
+/** En sang fra artistens mest spilte. Sangen spilles, og resten av listen legges i køen etter den. */
+function topTrackRow(r, i, all) {
+  const btn = h(
+    "button",
+    {
+      type: "button",
+      class: "k-row",
+      onclick: async () => {
+        btn.disabled = true;
+        const then = all.slice(i + 1).map((t) => ({ id: t.id, title: t.title }));
+        const ok = await playIn((g) =>
+          api("POST", sonosUrl("group", g.id, "spotify"), { type: "track", id: r.id, title: r.title, account: currentAccount()?.sn, then }),
+        );
+        btn.disabled = false;
+        if (ok) closeSearch();
+      },
+    },
+    h("span", { class: "k-num" }, String(i + 1)),
+    h("span", { class: "k-row-art", "aria-hidden": "true" }, artImg(r.art)),
+    h("span", { class: "k-row-text" }, h("strong", {}, r.title), h("span", {}, r.subtitle)),
+  );
+  return btn;
+}
+
+function backToSearch() {
+  const list = $("k-results");
+  $("k-filters").hidden = false;
+  if (savedResults) list.replaceChildren(...savedResults);
+  savedResults = null;
+  list.scrollTop = 0;
+}
+
+async function showArtist(id) {
+  const list = $("k-results");
+  const hint = $("k-search-hint");
+  if (!savedResults) savedResults = [...list.childNodes];
+  $("k-filters").hidden = true;
+  const back = h(
+    "button",
+    { type: "button", class: "k-back", onclick: backToSearch },
+    h("span", { "aria-hidden": "true" }, "‹"),
+    "Tilbake til søket",
+  );
+  list.replaceChildren(back);
+  hint.hidden = false;
+  hint.textContent = "Henter artisten …";
+  const seq = ++searchSeq;
+  try {
+    const res = await fetch(`/api/spotify/artist/${encodeURIComponent(id)}`);
+    const data = await res.json().catch(() => ({}));
+    if (seq !== searchSeq) return;
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    hint.hidden = true;
+    const a = data.artist;
+    const radio = h(
+      "button",
+      {
+        type: "button",
+        class: "k-primary",
+        onclick: async () => {
+          radio.disabled = true;
+          const ok = await playIn(playHit(a));
+          radio.disabled = false;
+          if (ok) closeSearch();
+        },
+      },
+      "Spill artistradio",
+    );
+    const parts = [
+      back,
+      h(
+        "div",
+        { class: "k-artist-head" },
+        h("span", { class: "k-top-art round", "aria-hidden": "true" }, artImg(a.art)),
+        h("div", {}, h("h3", {}, a.title), radio),
+      ),
+    ];
+    const section = (label, body) => h("section", { class: "k-section" }, h("div", { class: "k-section-head" }, h("h3", {}, label)), body);
+    if (data.topTracks?.length) parts.push(section("Mest spilt", h("div", { class: "k-rows" }, data.topTracks.map(topTrackRow))));
+    if (data.thisIs) parts.push(section(`This Is ${a.title}`, h("div", { class: "k-fav-grid k-tiles" }, hitTile(data.thisIs))));
+    if (data.albums?.length) parts.push(section("Album og singler", h("div", { class: "k-fav-grid k-tiles" }, data.albums.map(hitTile))));
+    if (data.appearsOn?.length) parts.push(section("Med på (featuring)", h("div", { class: "k-fav-grid k-tiles" }, data.appearsOn.map(hitTile))));
+    list.replaceChildren(...parts);
+    list.scrollTop = 0;
+  } catch (err) {
+    if (seq !== searchSeq) return;
+    hint.textContent = `Fikk ikke hentet artisten: ${err.message}`;
+  }
 }
 
 function setFilter(type) {
@@ -624,6 +769,10 @@ function setFilter(type) {
 
 async function runSearch(q, more = false) {
   const seq = ++searchSeq;
+  if (savedResults && !more) {
+    savedResults = null;
+    $("k-filters").hidden = false;
+  }
   const hint = $("k-search-hint");
   const list = $("k-results");
   if (!q.trim()) {
@@ -705,6 +854,7 @@ async function runSearch(q, more = false) {
   $("k-search-open").addEventListener("click", () => {
     delete $("k-account-list").dataset.key;
     renderAccounts();
+    if (savedResults) backToSearch();
     if (searchFilter) setFilter("");
     $("k-search").showModal();
     input.focus();

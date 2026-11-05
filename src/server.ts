@@ -224,6 +224,12 @@ export async function startWebServer(opts: {
       return json(res, 200, await spotify.search(url.searchParams.get("q") ?? "", type, offset));
     }
 
+    const artist = url.pathname.match(/^\/api\/spotify\/artist\/([A-Za-z0-9]{10,40})$/);
+    if (req.method === "GET" && artist) {
+      if (!spotify?.configured) return json(res, 404, { error: "Spotify er ikke satt opp" });
+      return json(res, 200, await spotify.artist(artist[1]));
+    }
+
     const accountName = url.pathname.match(/^\/api\/sonos\/spotify-account\/(\d{1,6})$/);
     if (req.method === "PUT" && accountName) {
       if (!sonos) return json(res, 404, { error: "Sonos er ikke satt opp" });
@@ -257,7 +263,25 @@ export async function startWebServer(opts: {
         }
         const title = typeof body.title === "string" ? body.title.slice(0, 200) : "Spotify";
         const sn = typeof body.account === "string" && /^\d{1,6}$/.test(body.account) ? body.account : undefined;
-        await sonos.playSpotify(id, type, body.id, title, sn);
+        const then = Array.isArray(body.then)
+          ? (body.then as unknown[])
+              .filter((t): t is { id: string; title?: unknown } => typeof (t as { id?: unknown })?.id === "string" && /^[A-Za-z0-9]{10,40}$/.test((t as { id: string }).id))
+              .slice(0, 20)
+              .map((t) => ({ id: t.id, title: typeof t.title === "string" ? t.title.slice(0, 200) : "Spotify" }))
+          : [];
+        await sonos.playSpotify(id, type, body.id, title, sn, then);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "group" && action === "seek") {
+        const body = await readBody(req);
+        if (typeof body.position !== "number" || !Number.isFinite(body.position) || body.position < 0) return json(res, 400, { error: "Send position i sekunder" });
+        await sonos.seek(id, body.position);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && kind === "group" && action === "track") {
+        const body = await readBody(req);
+        if (typeof body.number !== "number" || !Number.isInteger(body.number) || body.number < 1) return json(res, 400, { error: "Send number (fra 1)" });
+        await sonos.playTrack(id, body.number);
         return json(res, 200, { ok: true });
       }
       if (req.method === "POST" && kind === "group" && action === "all") {
