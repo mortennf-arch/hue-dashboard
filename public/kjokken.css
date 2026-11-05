@@ -51,7 +51,7 @@ h2 { margin: 0; }
 .k-date::first-letter { text-transform: uppercase; }
 
 .k-tabs { display: flex; gap: 6px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; }
-.k-tabs button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 24px; border: 0; border-radius: 14px; background: transparent; color: var(--text-2); font-size: 18px; font-weight: 600; }
+.k-tabs button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 18px; border: 0; border-radius: 14px; background: transparent; color: var(--text-2); font-size: 18px; font-weight: 600; }
 .k-tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 
 .k-status { display: flex; justify-content: flex-end; gap: 10px; min-width: 0; }
@@ -212,14 +212,17 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 .wx-icon .wx-bolt { color: var(--wx-sun); }
 .cold { color: var(--wx-cold); }
 
-.k-wx-chip { gap: 6px; padding: 4px 16px 4px 10px; font-size: 20px; min-height: 48px; }
-.k-wx-chip svg { color: inherit; }
-.k-wx-chip strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+.k-idag-icon { display: inline-flex; margin: -4px 0; }
+.k-idag-temp:not(:empty) { margin-left: -2px; font-variant-numeric: tabular-nums; }
+.k-idag-temp:not(:empty)::before { content: "·"; margin-right: 8px; opacity: 0.6; }
+.k-tabs button[aria-selected="true"] .wx-icon * { color: var(--accent-ink); fill: none; }
+.k-tabs button[aria-selected="true"] .wx-icon .wx-snow { fill: var(--accent-ink); }
 
 .k-idag { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; }
 .k-idag-left, .k-idag-right { display: flex; flex-direction: column; gap: 20px; min-height: 0; }
 .k-idag .k-card { display: flex; flex-direction: column; gap: 14px; }
-.k-wx-now { flex-grow: 1; }
+.k-wx-now { flex-shrink: 0; }
+.k-idag-left { overflow-y: auto; }
 .k-wx-now-body { display: flex; flex-direction: column; gap: 14px; }
 .k-wx-now-top { display: flex; align-items: center; gap: 16px; }
 .k-wx-now-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -240,6 +243,24 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 .k-wx-range span { color: var(--muted); }
 .k-wx-days .k-wx-mm { text-align: right; font-size: 16px; }
 .k-credit { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* ---------- I dag: søppeltømming ---------- */
+.k-bin-chip { gap: 8px; }
+.k-bin-dots { display: inline-flex; gap: 4px; }
+.k-bin-chip svg { color: var(--text-2); }
+.k-bin-chip.today { background: var(--accent-bg); border-color: var(--accent); color: var(--text); }
+.k-bin-chip.today svg { color: var(--accent); }
+.k-bins-body { display: flex; flex-direction: column; gap: 12px; }
+.k-bin-next { display: flex; flex-direction: column; gap: 10px; }
+.k-bin-next strong { font-size: 26px; }
+.k-bin-types { display: flex; flex-wrap: wrap; gap: 8px; }
+.k-bin-type { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border-2); font-size: 17px; font-weight: 600; }
+.k-bin-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--bin); flex-shrink: 0; }
+.k-bin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.k-bin-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border); }
+.k-bin-list .k-bin-when { font-size: 17px; color: var(--text-2); }
+.k-bin-list .k-bin-type { padding: 3px 10px 3px 8px; font-size: 14px; }
+.k-bin-list .k-bin-dot { width: 10px; height: 10px; }
 
 /* ---------- Varsel ---------- */
 .k-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--accent); color: var(--text); padding: 14px 22px; border-radius: 14px; font-size: 18px; font-weight: 600; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); z-index: 5; }

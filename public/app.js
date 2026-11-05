@@ -2020,17 +2020,32 @@ function renderTabs() {
 // ---------- I dag: været fra yr ----------
 
 let weather = null;
+let waste = null;
+
+function renderIdagTab() {
+  const tabBtn = document.getElementById("tab-idag");
+  const had = !tabBtn.hidden;
+  tabBtn.hidden = !weather?.configured && !waste?.configured;
+  if (!had && !tabBtn.hidden && storage("tab") === "idag" && tab !== "idag") showTab("idag");
+  if (had && tabBtn.hidden && tab === "idag") showTab("lys");
+  if (tabBtn.hidden) return;
+  // Tømming i dag eller i morgen kommer først, så den ikke forsvinner bak været.
+  const soon = Waste.soon(waste?.pickups);
+  const w = weather?.now;
+  const parts = [
+    soon ? `${Waste.list(soon.types)} ${soon.when}` : "",
+    w ? `${Weather.temp(w.temp)} ${w.text.toLowerCase()}` : "",
+    w && !soon && weather.note ? weather.note.toLowerCase() : "",
+  ].filter(Boolean);
+  setStatus("status-idag", parts.join(" · ") || weather?.reason || "", soon ? "active" : "");
+}
 
 function renderWeather() {
   const w = weather;
-  const tabBtn = document.getElementById("tab-idag");
-  const had = !tabBtn.hidden;
-  tabBtn.hidden = !w?.configured;
-  if (!had && !tabBtn.hidden && storage("tab") === "idag" && tab !== "idag") showTab("idag");
-  if (had && tabBtn.hidden && tab === "idag") showTab("lys");
+  renderIdagTab();
+  document.getElementById("wx-card").hidden = !w?.configured;
   if (!w?.configured) return;
 
-  setStatus("status-idag", w.now ? `${Weather.temp(w.now.temp)} ${w.now.text.toLowerCase()}${w.note ? ` · ${w.note.toLowerCase()}` : ""}` : w.reason || "");
   document.getElementById("wx-place").textContent = w.place ? ` i ${w.place}` : "";
   const hint = document.getElementById("wx-hint");
   hint.hidden = Boolean(w.available);
@@ -2085,8 +2100,51 @@ async function loadWeather() {
   renderWeather();
 }
 
-loadWeather();
-setInterval(loadWeather, 10 * 60_000);
+function binChips(types) {
+  return types.map((t) => {
+    const w = Waste.type(t);
+    const el = h("span", { class: "bin-type" }, h("span", { class: "bin-dot" }), w.name);
+    el.style.setProperty("--bin", w.color);
+    return el;
+  });
+}
+
+function renderWaste() {
+  const w = waste;
+  renderIdagTab();
+  document.getElementById("bins-card").hidden = !w?.configured;
+  if (!w?.configured) return;
+  const pickups = w.pickups ?? [];
+  const hint = document.getElementById("bins-hint");
+  hint.hidden = Boolean(pickups.length);
+  hint.textContent = w.reason ?? "";
+  document.getElementById("bins-body").replaceChildren(
+    h(
+      "ol",
+      { class: "bin-list" },
+      pickups.slice(0, 6).map((p, i) => h("li", { class: i === 0 ? "next" : "" }, h("span", { class: "bin-when" }, Waste.day(p.date)), h("div", { class: "bin-types" }, binChips(p.types)))),
+    ),
+  );
+}
+
+async function loadWaste() {
+  try {
+    const res = await fetch("/api/waste");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    waste = await res.json();
+  } catch {
+    // Beholder det vi har.
+  }
+  renderWaste();
+}
+
+function loadIdag() {
+  loadWeather();
+  loadWaste();
+}
+
+loadIdag();
+setInterval(loadIdag, 10 * 60_000);
 
 // ---------- Samlet tegning ----------
 

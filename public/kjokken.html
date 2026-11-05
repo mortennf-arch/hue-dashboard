@@ -27,8 +27,8 @@
         Lys
       </button>
       <button type="button" role="tab" id="tab-idag" data-tab="idag" aria-controls="k-idag" hidden>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z"/></svg>
-        I dag
+        <span id="k-idag-icon" class="k-idag-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z"/></svg></span>
+        I dag<span id="k-idag-temp" class="k-idag-temp"></span>
       </button>
       <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="k-sikkerhet">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -36,7 +36,7 @@
       </button>
     </nav>
     <div class="k-status">
-      <button type="button" id="k-wx-chip" class="k-chip k-wx-chip" hidden></button>
+      <button type="button" id="k-bin-chip" class="k-chip k-bin-chip" hidden></button>
       <span id="k-bell-chip" class="k-chip">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         <span id="k-bell-chip-text">Ingen har ringt på i dag</span>
@@ -113,10 +113,15 @@
 
     <section id="k-idag" role="tabpanel" aria-labelledby="tab-idag" class="k-idag" hidden>
       <div class="k-idag-left">
-        <article class="k-card k-wx-now" aria-labelledby="k-wx-h">
+        <article id="k-wx-now" class="k-card k-wx-now" aria-labelledby="k-wx-h" hidden>
           <h2 id="k-wx-h" class="k-label">Været<span id="k-wx-place"></span></h2>
           <div id="k-wx-now-body" class="k-wx-now-body"></div>
           <p id="k-wx-hint" class="k-hint" hidden></p>
+        </article>
+        <article id="k-bins" class="k-card k-bins" aria-labelledby="k-bins-h" hidden>
+          <h2 id="k-bins-h" class="k-label">Søppeltømming</h2>
+          <div id="k-bins-body" class="k-bins-body"></div>
+          <p id="k-bins-hint" class="k-hint" hidden></p>
         </article>
       </div>
       <div class="k-idag-right">
@@ -179,7 +184,7 @@
   <button type="button" id="k-ring-close" class="k-ring-close">Lukk</button>
 </div>
 
-<script src="weather.js"></script>
+<script src="idag.js"></script>
 <script src="kjokken.js"></script>
 </body>
 </html>
