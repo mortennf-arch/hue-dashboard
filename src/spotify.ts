@@ -68,6 +68,57 @@ export class SpotifyClient {
    * Søker i Spotify. Uten type hentes noen få av hver type og et «beste treff». Med type hentes flere av
    * den typen, side for side med offset.
    */
+  private async get(path: string, params: Record<string, string> = {}): Promise<Record<string, any>> {
+    const url = new URL(`https://api.spotify.com/v1/${path}`);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${await this.accessToken()}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 401) this.token = "";
+    if (!res.ok) throw new Error(`Spotify svarte ${res.status} for ${path.split("/")[0]}`);
+    return (await res.json()) as Record<string, any>;
+  }
+
+  /**
+   * Artistsiden: mest spilte sanger, album og singler, der artisten er med (featuring), og «This Is»-listen.
+   * Hver del hentes for seg. Svarer Spotify ikke på en del, blir den bare tom, så resten vises likevel.
+   */
+  async artist(id: string): Promise<SpotifyArtist> {
+    if (!this.configured) throw new Error("Spotify er ikke satt opp");
+    const [info, top, albums, appears] = await Promise.allSettled([
+      this.get(`artists/${id}`),
+      this.get(`artists/${id}/top-tracks`, { market: "NO" }),
+      this.get(`artists/${id}/albums`, { include_groups: "album,single", market: "NO", limit: "20" }),
+      this.get(`artists/${id}/albums`, { include_groups: "appears_on", market: "NO", limit: "20" }),
+    ]);
+    const val = <T>(r: PromiseSettledResult<T>): T | null => (r.status === "fulfilled" ? r.value : null);
+    if (info.status === "rejected") throw info.reason;
+    const a = info.value;
+    const name: string = a.name ?? "Artist";
+    const list = (x: Record<string, any> | null, key: string) => ((x?.[key] ?? []) as (Record<string, any> | null)[]).filter((v): v is Record<string, any> => Boolean(v?.id));
+    // Spotify gir ofte samme album flere ganger (utgaver for ulike land). Navnet holder for å rydde.
+    const uniqueByTitle = (hits: SpotifyHit[]) => hits.filter((h, i) => hits.findIndex((x) => x.title.toLocaleLowerCase("nb") === h.title.toLocaleLowerCase("nb")) === i);
+    const thisIs = await this.thisIs(name).catch(() => null);
+    return {
+      artist: { type: "artist", id, title: name, subtitle: "Artistradio", art: pickImage(a.images) },
+      topTracks: list(val(top), "tracks").slice(0, 10).map(trackHit),
+      albums: uniqueByTitle(list(val(albums), "items").map(albumHit)),
+      appearsOn: uniqueByTitle(list(val(appears), "items").map(albumHit)),
+      thisIs,
+    };
+  }
+
+  /** Finner Spotifys egen «This Is <artist>»-liste, hvis søket gir den. */
+  private async thisIs(name: string): Promise<SpotifyHit | null> {
+    const data = await this.get("search", { q: `This Is ${name}`, type: "playlist", market: "NO", limit: "10" });
+    const want = `this is ${name}`.toLocaleLowerCase("nb");
+    const p = ((data.playlists?.items ?? []) as (Record<string, any> | null)[]).find(
+      (x) => x?.id && String(x.name ?? "").toLocaleLowerCase("nb") === want,
+    );
+    return p ? playlistHit(p) : null;
+  }
+
   async search(query: string, type?: SpotifyType, offset = 0): Promise<SpotifySearch> {
     if (!this.configured) throw new Error("Spotify er ikke satt opp");
     const q = query.trim().slice(0, 100);
@@ -88,20 +139,13 @@ export class SpotifyClient {
     // Spotify kan gi null-elementer i listene, så alt sjekkes.
     const data = (await res.json()) as Record<string, { items?: (Record<string, any> | null)[]; next?: string | null } | undefined>;
     const items = (key: string) => (data[key]?.items ?? []).filter((x): x is Record<string, any> => Boolean(x?.id));
-    const names = (list: { name?: string }[] | undefined) => (list ?? []).map((a) => a.name).filter(Boolean).join(", ");
     const artists = items("artists").map((a): SpotifyHit => ({ type: "artist", id: a.id, title: a.name, subtitle: "Artistradio", art: pickImage(a.images) }));
-    const tracks = items("tracks").map((t): SpotifyHit => ({ type: "track", id: t.id, title: t.name, subtitle: names(t.artists), art: pickImage(t.album?.images) }));
-    const albums = items("albums").map((a): SpotifyHit => ({ type: "album", id: a.id, title: a.name, subtitle: `Album · ${names(a.artists)}`, art: pickImage(a.images) }));
+    const tracks = items("tracks").map(trackHit);
+    const albums = items("albums").map(albumHit);
     // Spillelister laget av Spotify selv er som regel best vedlikeholdt, så de kommer først.
     const playlistItems = items("playlists");
     const byOwner = [...playlistItems.filter((p) => p.owner?.id === "spotify"), ...playlistItems.filter((p) => p.owner?.id !== "spotify")];
-    const playlists = byOwner.map((p): SpotifyHit => ({
-      type: "playlist",
-      id: p.id,
-      title: p.name,
-      subtitle: `Spilleliste${p.owner?.display_name ? ` · ${p.owner.display_name}` : ""}`,
-      art: pickImage(p.images),
-    }));
+    const playlists = byOwner.map(playlistHit);
     if (type) {
       const key = `${type}s`;
       const results = { artists, tracks, albums, playlists }[key as "artists"] ?? [];
@@ -113,6 +157,31 @@ export class SpotifyClient {
 }
 
 const PAGE = 10;
+
+const names = (list: { name?: string }[] | undefined) => (list ?? []).map((a) => a.name).filter(Boolean).join(", ");
+const trackHit = (t: Record<string, any>): SpotifyHit => ({ type: "track", id: t.id, title: t.name, subtitle: names(t.artists), art: pickImage(t.album?.images) });
+const albumHit = (a: Record<string, any>): SpotifyHit => ({
+  type: "album",
+  id: a.id,
+  title: a.name,
+  subtitle: `${a.album_type === "single" ? "Singel" : a.album_type === "compilation" ? "Samling" : "Album"}${a.release_date ? ` · ${String(a.release_date).slice(0, 4)}` : ""} · ${names(a.artists)}`,
+  art: pickImage(a.images),
+});
+const playlistHit = (p: Record<string, any>): SpotifyHit => ({
+  type: "playlist",
+  id: p.id,
+  title: p.name,
+  subtitle: `Spilleliste${p.owner?.display_name ? ` · ${p.owner.display_name}` : ""}`,
+  art: pickImage(p.images),
+});
+
+export interface SpotifyArtist {
+  artist: SpotifyHit;
+  topTracks: SpotifyHit[];
+  albums: SpotifyHit[];
+  appearsOn: SpotifyHit[];
+  thisIs: SpotifyHit | null;
+}
 
 export interface SpotifySearch {
   /** Det beste treffet, vist stort øverst. Bare når det søkes i alle typer. */
