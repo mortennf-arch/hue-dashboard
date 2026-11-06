@@ -2188,7 +2188,7 @@ function renderSonosDialogs() {
 
 // ---------- Faner ----------
 
-const TABS = ["lys", "musikk", "idag", "sikkerhet"];
+const TABS = ["lys", "musikk", "timer", "idag", "sikkerhet"];
 let tab = TABS.includes(storage("tab")) ? storage("tab") : "lys";
 
 function showTab(name, focus = false) {
@@ -2414,7 +2414,7 @@ function scheduleRender() {
     renderVerisure();
     renderStatus();
     renderBell();
-    renderTimerRooms();
+    renderTimerPanel();
     renderDetail();
     renderSonos();
     renderSonosDialogs();
@@ -2499,8 +2499,9 @@ function connect() {
 }
 
 // ---------- Timer ----------
-// Timerne går på serveren, samme som på kjøkkennettbrettet. Når en timer er ferdig, vises et banner
-// som piper til noen trykker Stopp, og serveren blinker lyset i rommet som ble valgt.
+// Samme som fanen «Timer» på kjøkkennettbrettet: tidene til venstre, nedtelling i midten og
+// varslingsvalg til høyre. Timerne går på serveren. Når en timer er ferdig, vises et banner som
+// piper (hvis lyd er valgt) til noen trykker Stopp.
 
 let audio = null;
 // Nettlesere spiller bare lyd etter at noen har trykket på siden. Lyden gjøres klar ved første trykk.
@@ -2517,138 +2518,215 @@ document.addEventListener(
   { passive: true },
 );
 
+const RING_LEN = 2 * Math.PI * 180;
+const $id = (id) => document.getElementById(id);
+let tmSelected = null;
+let tmSeconds = Number(storage("tmSeconds")) || 600;
+let tmAlerts = Timer.savedAlerts(storage("tmAlerts"));
 let beepTimer = null;
 
 function setTimers(list) {
-  timers = Array.isArray(list) ? list : [];
+  timers = Timer.sorted(Array.isArray(list) ? list : []);
+  if (tmSelected && !timers.some((t) => t.id === tmSelected)) tmSelected = null;
   renderTimers();
 }
 
-function renderTimerButton() {
-  const btn = document.getElementById("timer-open");
-  const ringing = timers.some((t) => t.ringing);
-  const running = timers.filter((t) => !t.ringing);
-  btn.innerHTML = Timer.ICON;
-  btn.classList.toggle("ringing", ringing);
-  btn.classList.toggle("running", !ringing && running.length > 0);
-  let text = "Timer";
-  if (ringing) text = "Timer ferdig";
-  else if (running.length) text = Timer.clock(Timer.left(running[0])) + (running.length > 1 ? ` +${running.length - 1}` : "");
-  btn.append(h("span", {}, text));
-  btn.setAttribute("aria-label", running.length && !ringing ? `${Timer.name(running[0])}: ${text} igjen. Åpne timere` : text);
+const selectedTimer = () => timers.find((t) => t.id === tmSelected) ?? null;
+
+function renderTimerStatus() {
+  const ringing = timers.find((t) => t.ringing);
+  const next = timers.find((t) => !t.ringing);
+  if (ringing) setStatus("status-timer", `${Timer.name(ringing)} er ferdig`, "alert");
+  else if (next) setStatus("status-timer", `${next.label || "Timer"} ${Timer.clock(Timer.left(next))}${timers.length > 1 ? ` · ${timers.length} går` : ""}`, "active");
+  else setStatus("status-timer", "Ingen timer går");
 }
 
-function renderTimerList() {
-  document.getElementById("timer-list").replaceChildren(
-    ...timers.map((t) =>
-      h(
-        "div",
-        { class: t.ringing ? "timer-row ringing" : "timer-row", "data-id": t.id },
-        h("div", {}, h("strong", {}, Timer.name(t)), h("span", {}, t.roomName ? `Blinker i ${t.roomName}` : "Uten blinking")),
-        h("span", { class: "left" }, t.ringing ? "Ferdig" : Timer.clock(Timer.left(t))),
-        h("button", { type: "button", onclick: () => api("POST", `/api/timers/${t.id}/extend`, { seconds: 60 }) }, "+1 min"),
-        h("button", { type: "button", onclick: () => api("DELETE", `/api/timers/${t.id}`) }, t.ringing ? "Stopp" : "Avbryt"),
-      ),
-    ),
+function timerCard(t) {
+  return h(
+    "button",
+    {
+      type: "button",
+      class: t.ringing ? "tm-card ringing" : "tm-card",
+      "data-id": t.id,
+      "aria-pressed": String(t.id === tmSelected),
+      onclick: () => {
+        tmSelected = t.id;
+        renderTimerPanel();
+      },
+    },
+    h("span", {}, t.label || Timer.duration(t.durationMs)),
+    h("strong", {}, t.ringing ? "Ferdig" : Timer.clock(Timer.left(t))),
   );
 }
 
-let timerRoomsKey = "";
-function renderTimerRooms() {
+let tmRoomsKey = "";
+function renderTimerPanel() {
+  const live = selectedTimer();
+  $id("panel-timer").classList.toggle("is-live", Boolean(live));
+  $id("tm-setup").hidden = Boolean(live);
+  $id("tm-live").hidden = !live;
+  $id("tm-presets-wrap").hidden = Boolean(live);
+  $id("tm-running-wrap").hidden = !timers.length;
+  $id("tm-running-h").textContent = live ? "Timere" : "Går nå";
+  const cards = timers.map(timerCard);
+  if (live) cards.push(h("button", { type: "button", class: "tm-new", onclick: () => ((tmSelected = null), renderTimerPanel()) }, "+ Ny timer"));
+  $id("tm-running").replaceChildren(...cards);
+
+  if (live) {
+    $id("tm-live-name").textContent = Timer.name(live);
+    renderLiveTime(live);
+  } else {
+    $id("tm-time").textContent = Timer.clock(tmSeconds * 1000);
+    for (const b of $id("tm-presets").children) b.setAttribute("aria-pressed", String(Number(b.dataset.min) * 60 === tmSeconds));
+  }
+
   const list = Timer.rooms(byId);
-  const chosen = Timer.pickRoom(list, storage("timerRoom"));
-  const key = JSON.stringify([chosen, list.map((r) => [r.id, r.metadata?.name])]);
-  if (key === timerRoomsKey) return;
-  timerRoomsKey = key;
-  const sel = document.getElementById("timer-room");
-  sel.replaceChildren(
-    h("option", { value: "" }, "Ingen blinking"),
-    ...list.map((r) => h("option", { value: r.id }, `${r.metadata?.name ?? "Rom"}${r.type === "zone" ? " (sone)" : ""}`)),
+  const room = live ? live.room : Timer.pickRoom(list, storage("timerRoom"));
+  const roomName = list.find((r) => r.id === room)?.metadata?.name ?? "";
+  const alerts = live ? live.alerts ?? {} : tmAlerts;
+  $id("tm-alerts").replaceChildren(
+    ...Timer.ALERTS.map((a) => {
+      const btn = h(
+        "button",
+        { type: "button", class: "tm-alert", disabled: a.soon || undefined, "aria-pressed": String(Boolean(alerts[a.key]) && !a.soon), onclick: () => setAlert(a.key, !alerts[a.key]) },
+        h("span", {}, h("strong", {}, a.name), h("small", {}, a.sub(roomName))),
+      );
+      btn.insertAdjacentHTML("afterbegin", a.icon);
+      return btn;
+    }),
   );
-  sel.value = chosen;
+  const key = JSON.stringify([room, list.map((r) => [r.id, r.metadata?.name])]);
+  if (key !== tmRoomsKey) {
+    tmRoomsKey = key;
+    $id("tm-rooms").replaceChildren(
+      ...list.map((r) => h("button", { type: "button", "aria-pressed": String(r.id === room), onclick: () => setRoom(r.id) }, r.metadata?.name ?? "Rom")),
+    );
+  }
+}
+
+function renderLiveTime(t) {
+  const left = $id("tm-live-left");
+  left.textContent = t.ringing ? "Ferdig" : Timer.clock(Timer.left(t));
+  left.classList.toggle("long", Timer.left(t) >= 3600_000 || t.ringing);
+  $id("tm-live-end").textContent = t.ringing ? "Trykk Stopp for å slå av" : `Ferdig kl. ${Timer.endsAt(t)}`;
+  const arc = $id("tm-arc");
+  arc.style.strokeDasharray = `${RING_LEN}`;
+  arc.style.strokeDashoffset = `${RING_LEN * Timer.progress(t)}`;
+}
+
+function setAlert(key, on) {
+  const live = selectedTimer();
+  if (live) {
+    live.alerts = { ...live.alerts, [key]: on };
+    renderTimerPanel();
+    api("PATCH", `/api/timers/${live.id}`, { alerts: { [key]: on } });
+    return;
+  }
+  tmAlerts = { ...tmAlerts, [key]: on };
+  storage("tmAlerts", JSON.stringify(tmAlerts));
+  renderTimerPanel();
+}
+
+function setRoom(id) {
+  const live = selectedTimer();
+  if (live) {
+    live.room = id;
+    api("PATCH", `/api/timers/${live.id}`, { room: id });
+  } else storage("timerRoom", id);
+  tmRoomsKey = "";
+  renderTimerPanel();
+}
+
+function setSeconds(s) {
+  tmSeconds = Math.min(24 * 3600, Math.max(60, s));
+  storage("tmSeconds", String(tmSeconds));
+  renderTimerPanel();
 }
 
 function renderTimerRing() {
   const ringing = timers.find((t) => t.ringing);
-  const el = document.getElementById("timer-ring");
+  const el = $id("timer-ring");
   el.hidden = !ringing;
   if (!ringing) {
     clearInterval(beepTimer);
     beepTimer = null;
     return;
   }
+  const a = ringing.alerts ?? {};
   el.dataset.id = ringing.id;
-  document.getElementById("timer-ring-title").textContent = ringing.label ? `${ringing.label} er ferdig` : "Timeren er ferdig";
-  document.getElementById("timer-ring-detail").textContent = [Timer.duration(ringing.durationMs), ringing.roomName ? `lyset blinker i ${ringing.roomName}` : ""].filter(Boolean).join(" · ");
-  if (!beepTimer) {
+  $id("timer-ring-title").textContent = ringing.label ? `${ringing.label} er ferdig` : "Timeren er ferdig";
+  const light = ringing.roomName && (a.blink || a.red) ? `lyset ${a.red ? "er rødt" : "blinker"} i ${ringing.roomName}` : "";
+  $id("timer-ring-detail").textContent = [Timer.duration(ringing.durationMs), light].filter(Boolean).join(" · ");
+  const wantBeep = a.sound !== false;
+  if (wantBeep && !beepTimer) {
     Timer.beep(audio);
     beepTimer = setInterval(() => Timer.beep(audio), 2500);
+  } else if (!wantBeep && beepTimer) {
+    clearInterval(beepTimer);
+    beepTimer = null;
   }
 }
 
 function renderTimers() {
-  renderTimerButton();
-  if (document.getElementById("timer").open) renderTimerList();
+  renderTimerStatus();
+  renderTimerPanel();
   renderTimerRing();
 }
 
-async function startTimer(minutes) {
-  const hint = document.getElementById("timer-hint");
+$id("tm-presets").replaceChildren(
+  ...Timer.PRESETS.map((m) => h("button", { type: "button", "data-min": m, onclick: () => setSeconds(m * 60) }, m === 60 ? "1 time" : `${m} min`)),
+);
+$id("tm-minus").addEventListener("click", () => setSeconds(tmSeconds - 60));
+$id("tm-plus").addEventListener("click", () => setSeconds(tmSeconds + 60));
+$id("tm-start").addEventListener("click", async () => {
+  const hint = $id("tm-hint");
   hint.hidden = true;
-  const room = document.getElementById("timer-room").value;
-  const name = document.getElementById("timer-name");
+  const room = Timer.pickRoom(Timer.rooms(byId), storage("timerRoom"));
   try {
-    await api("POST", "/api/timers", { seconds: Math.round(minutes * 60), label: name.value.trim(), room: room || undefined }, true);
-    name.value = "";
-    document.getElementById("timer").close();
+    const t = await api(
+      "POST",
+      "/api/timers",
+      { seconds: tmSeconds, label: $id("tm-name").value.trim(), room: room || undefined, alerts: { sound: tmAlerts.sound, blink: tmAlerts.blink, red: tmAlerts.red } },
+      true,
+    );
+    $id("tm-name").value = "";
+    tmSelected = t.id;
+    if (!timers.some((x) => x.id === t.id)) timers = Timer.sorted([...timers, t]);
+    renderTimers();
   } catch (err) {
     hint.textContent = `Fikk ikke startet timeren: ${err.message}`;
     hint.hidden = false;
   }
+});
+for (const b of document.querySelectorAll("#tm-live [data-add]")) {
+  b.addEventListener("click", () => {
+    const t = selectedTimer();
+    if (t) api("POST", `/api/timers/${t.id}/extend`, { seconds: Number(b.dataset.add) });
+  });
 }
-
-document.getElementById("timer-presets").replaceChildren(
-  ...Timer.PRESETS.map((m) => h("button", { type: "button", onclick: () => startTimer(m) }, m === 60 ? "1 time" : `${m} min`)),
-);
-document.getElementById("timer-custom").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const input = document.getElementById("timer-min");
-  const m = Number(input.value);
-  if (m > 0) {
-    startTimer(m);
-    input.value = "";
-  }
+$id("tm-stop").addEventListener("click", () => {
+  const t = selectedTimer();
+  if (t) api("DELETE", `/api/timers/${t.id}`);
 });
-document.getElementById("timer-room").addEventListener("change", (e) => {
-  storage("timerRoom", e.target.value);
-  timerRoomsKey = "";
-  renderTimerRooms();
-});
-document.getElementById("timer-open").addEventListener("click", () => {
-  renderTimerRooms();
-  renderTimerList();
-  document.getElementById("timer-hint").hidden = true;
-  document.getElementById("timer").showModal();
-});
-document.getElementById("timer-close").addEventListener("click", () => document.getElementById("timer").close());
-document.getElementById("timer-ring-stop").addEventListener("click", () => {
-  const id = document.getElementById("timer-ring").dataset.id;
+$id("timer-ring-stop").addEventListener("click", () => {
+  const id = $id("timer-ring").dataset.id;
   if (id) api("DELETE", `/api/timers/${id}`);
 });
-document.getElementById("timer-ring-more").addEventListener("click", () => {
-  const id = document.getElementById("timer-ring").dataset.id;
+$id("timer-ring-more").addEventListener("click", () => {
+  const id = $id("timer-ring").dataset.id;
   if (id) api("POST", `/api/timers/${id}/extend`, { seconds: 60 });
 });
 setInterval(() => {
   if (!timers.length) return;
-  renderTimerButton();
-  if (!document.getElementById("timer").open) return;
-  for (const row of document.querySelectorAll("#timer-list .timer-row:not(.ringing)")) {
-    const t = timers.find((x) => x.id === row.dataset.id);
-    if (t) row.querySelector(".left").textContent = Timer.clock(Timer.left(t));
+  renderTimerStatus();
+  for (const card of document.querySelectorAll("#tm-running .tm-card")) {
+    const t = timers.find((x) => x.id === card.dataset.id);
+    if (t && !t.ringing) card.querySelector("strong").textContent = Timer.clock(Timer.left(t));
   }
+  const live = selectedTimer();
+  if (live && !$id("panel-timer").hidden) renderLiveTime(live);
 }, 1000);
-renderTimerButton();
+renderTimers();
 
 // ---------- Oppstart ----------
 

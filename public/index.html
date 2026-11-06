@@ -16,7 +16,6 @@
       <div class="grow"></div>
       <span class="chip" id="bridge-status"><span class="dot"></span><span>Kobler til …</span></span>
       <span class="chip" id="lights-on"></span>
-      <button type="button" class="chip timer-btn" id="timer-open" aria-haspopup="dialog"></button>
       <button type="button" class="primary" id="all-off">Alt av</button>
     </header>
 
@@ -47,6 +46,9 @@
       </button>
       <button type="button" role="tab" id="tab-musikk" data-tab="musikk" aria-controls="panel-musikk" aria-selected="false" hidden>
         <span class="tab-name">Musikk</span><span class="tab-status" id="status-musikk"></span>
+      </button>
+      <button type="button" role="tab" id="tab-timer" data-tab="timer" aria-controls="panel-timer" aria-selected="false">
+        <span class="tab-name">Timer</span><span class="tab-status" id="status-timer"></span>
       </button>
       <button type="button" role="tab" id="tab-idag" data-tab="idag" aria-controls="panel-idag" aria-selected="false" hidden>
         <span class="tab-name">I dag</span><span class="tab-status" id="status-idag"></span>
@@ -84,6 +86,54 @@
       </div>
       <p class="hint" id="music-hint" hidden></p>
       <div class="music-grid" id="music-groups"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-timer" aria-labelledby="tab-timer" class="tm-panel" hidden>
+      <div class="tm-left">
+        <section class="tm-group" id="tm-running-wrap" aria-labelledby="tm-running-h" hidden>
+          <h2 class="sub-h" id="tm-running-h">Går nå</h2>
+          <div class="tm-running" id="tm-running"></div>
+        </section>
+        <section class="tm-group" id="tm-presets-wrap" aria-labelledby="tm-presets-h">
+          <h2 class="sub-h" id="tm-presets-h">Ny timer</h2>
+          <div class="tm-presets" id="tm-presets"></div>
+        </section>
+      </div>
+
+      <section class="tm-center" id="tm-setup" aria-label="Ny timer">
+        <div class="tm-set">
+          <button type="button" class="tm-step" id="tm-minus" aria-label="Ett minutt mindre">−</button>
+          <span class="tm-time" id="tm-time">10:00</span>
+          <button type="button" class="tm-step" id="tm-plus" aria-label="Ett minutt mer">+</button>
+        </div>
+        <label class="field tm-name"><span>Navn (kan stå tomt)</span><input type="text" class="text-in" id="tm-name" maxlength="40" placeholder="For eksempel Pizza"></label>
+        <button type="button" class="primary tm-start" id="tm-start">Start</button>
+        <p class="hint" id="tm-hint" hidden></p>
+      </section>
+
+      <section class="tm-center" id="tm-live" aria-labelledby="tm-live-name" hidden>
+        <div class="tm-ring">
+          <svg viewBox="0 0 400 400" aria-hidden="true"><circle cx="200" cy="200" r="180" class="tm-track"></circle><circle id="tm-arc" cx="200" cy="200" r="180" class="tm-arc" transform="rotate(-90 200 200)"></circle></svg>
+          <div class="tm-ring-text">
+            <span class="tm-live-name" id="tm-live-name"></span>
+            <span class="tm-live-left" id="tm-live-left"></span>
+            <span class="tm-live-end" id="tm-live-end"></span>
+          </div>
+        </div>
+        <div class="tm-actions">
+          <button type="button" data-add="60">+1 min</button>
+          <button type="button" data-add="300">+5 min</button>
+          <button type="button" data-add="600">+10 min</button>
+          <button type="button" class="primary" id="tm-stop">Stopp</button>
+        </div>
+      </section>
+
+      <section class="tm-right" aria-labelledby="tm-alerts-h">
+        <h2 class="sub-h" id="tm-alerts-h">Varsle med</h2>
+        <div class="tm-alerts" id="tm-alerts"></div>
+        <h3 class="sub-h">Rom for lyset</h3>
+        <div class="tm-rooms" id="tm-rooms" role="group" aria-label="Rom for lyset"></div>
+      </section>
     </section>
 
     <section role="tabpanel" id="panel-idag" aria-labelledby="tab-idag" class="idag-panel" hidden>
@@ -251,29 +301,6 @@
         <button type="submit" class="primary" id="create-go">Lag</button>
       </div>
     </form>
-  </dialog>
-  <dialog id="timer" aria-labelledby="timer-title">
-    <div class="detail">
-      <header class="detail-head">
-        <h2 id="timer-title">Timer</h2>
-        <div class="grow"></div>
-        <button type="button" class="close" id="timer-close" aria-label="Lukk">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
-        </button>
-      </header>
-      <div class="timer-list" id="timer-list"></div>
-      <p class="hint" id="timer-hint" hidden></p>
-      <label class="field"><span>Blink med lyset i</span><select class="text-in" id="timer-room"></select></label>
-      <label class="field"><span>Navn (kan stå tomt)</span><input type="text" class="text-in" id="timer-name" maxlength="40" placeholder="For eksempel Pasta"></label>
-      <div>
-        <h3 class="sub-h">Start en timer</h3>
-        <div class="timer-presets" id="timer-presets"></div>
-      </div>
-      <form class="row-actions" id="timer-custom">
-        <label class="field timer-min"><span>Egen tid i minutter</span><input type="number" class="text-in" id="timer-min" min="1" max="1440" required></label>
-        <button type="submit" class="primary">Start</button>
-      </form>
-    </div>
   </dialog>
   <dialog id="sonos-fav" aria-labelledby="sonos-fav-title">
     <div class="detail">

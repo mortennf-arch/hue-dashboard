@@ -378,6 +378,13 @@ export async function startWebServer(opts: {
         }
       }
       const one = url.pathname.match(/^\/api\/timers\/([0-9a-f-]{36})(\/extend)?$/);
+      if (one && req.method === "PATCH" && !one[2]) {
+        try {
+          return json(res, 200, timers.update(one[1], await readBody(req)));
+        } catch (err) {
+          return json(res, 400, { error: (err as Error).message });
+        }
+      }
       if (one && req.method === "DELETE" && !one[2]) {
         return timers.remove(one[1]) ? json(res, 200, { ok: true }) : json(res, 404, { error: "Fant ikke timeren" });
       }

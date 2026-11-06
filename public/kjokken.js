@@ -113,7 +113,7 @@ function setFill(input) {
 
 // ---------- Faner ----------
 
-const TABS = ["musikk", "lys", "idag", "sikkerhet"];
+const TABS = ["musikk", "lys", "timer", "idag", "sikkerhet"];
 let tab = TABS.includes(storage("kTab")) ? storage("kTab") : "musikk";
 
 const visibleTabs = () => TABS.filter((t) => !$(`tab-${t}`).hidden);
@@ -1086,7 +1086,7 @@ function render() {
     renderMusic();
     renderLights();
     renderBell();
-    renderTimerRooms();
+    renderTimerPanel();
   });
 }
 
@@ -1268,14 +1268,11 @@ function syncChips() {
   const rang = bell.classList.contains("rang");
   chip.hidden = !soon;
   bell.hidden = Boolean(soon) && !rang;
-  const shown = [chip, bell, $("k-timer-chip")].filter((c) => !c.hidden).length;
-  document.querySelector(".k-top").classList.toggle("crowded", shown > 2);
   // Med to merker blir ringingen kortere: bare klokkeslettet.
   const ring = latestRing();
   if (rang && ring) $("k-bell-chip-text").textContent = soon ? `kl. ${shortTime.format(new Date(ring.time))}` : `Ringte på kl. ${shortTime.format(new Date(ring.time))}`;
   if (!soon) return;
-  // En timer som går, tar også plass, så da blir tømmingen kort.
-  const compact = rang || timers.length > 0;
+  const compact = rang;
   const when = soon.when === "i dag" ? "I dag" : "I morgen";
   chip.innerHTML = Waste.BIN_SVG;
   if (compact) {
@@ -1351,72 +1348,137 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // ---------- Timer ----------
-// Timerne går på serveren. Her vises de, og her startes og stoppes de. Når en timer er ferdig, dekker
-// et varsel hele skjermen og piper til noen trykker Stopp. Serveren blinker lyset i rommet som ble valgt.
+// Timerne går på serveren. Fanen «Timer» har tidene til venstre, stor nedtelling i midten og
+// varslingsvalg til høyre. Før start gjelder valgene til høyre den nye timeren (og huskes), mens en
+// timer går, gjelder de den timeren som vises. Når en timer er ferdig, dekker et varsel hele skjermen.
 
+const RING_LEN = 2 * Math.PI * 180;
+let tmSelected = null; // timeren som vises i midten, ellers vises «Ny timer»
+let tmSeconds = Number(storage("kTmSeconds")) || 600;
+let tmAlerts = Timer.savedAlerts(storage("kTmAlerts"));
 let alarmShown = null; // id-en til timeren varselet gjelder
 let beepTimer = null;
 
 function setTimers(list) {
-  timers = Array.isArray(list) ? list : [];
+  timers = Timer.sorted(Array.isArray(list) ? list : []);
+  if (tmSelected && !timers.some((t) => t.id === tmSelected)) tmSelected = null;
   renderTimers();
 }
 
-function renderTimerChip() {
-  const chip = $("k-timer-chip");
-  const ringing = timers.filter((t) => t.ringing);
-  const running = timers.filter((t) => !t.ringing);
-  chip.innerHTML = Timer.ICON;
-  chip.classList.toggle("ringing", ringing.length > 0);
-  chip.classList.toggle("idle", !timers.length);
-  if (ringing.length) {
-    chip.append(h("span", {}, "Ferdig!"));
-    chip.setAttribute("aria-label", "En timer er ferdig");
-  } else if (running.length) {
-    const next = running[0];
-    chip.append(h("span", {}, Timer.clock(Timer.left(next)) + (running.length > 1 ? ` +${running.length - 1}` : "")));
-    chip.setAttribute("aria-label", `${Timer.name(next)}: ${Timer.clock(Timer.left(next))} igjen. Åpne timere`);
+const selectedTimer = () => timers.find((t) => t.id === tmSelected) ?? null;
+
+function renderTimerTab() {
+  const ringing = timers.some((t) => t.ringing);
+  const next = timers.find((t) => !t.ringing);
+  $("k-timer-tab").textContent = ringing ? "Ferdig!" : next ? Timer.clock(Timer.left(next)) : "";
+  $("tab-timer").classList.toggle("ringing", ringing);
+}
+
+function timerCard(t) {
+  return h(
+    "button",
+    {
+      type: "button",
+      class: t.ringing ? "k-tm-card ringing" : "k-tm-card",
+      "data-id": t.id,
+      "aria-pressed": String(t.id === tmSelected),
+      onclick: () => {
+        tmSelected = t.id;
+        renderTimerPanel();
+      },
+    },
+    h("span", {}, t.label || Timer.duration(t.durationMs)),
+    h("strong", {}, t.ringing ? "Ferdig" : Timer.clock(Timer.left(t))),
+  );
+}
+
+let tmRoomsKey = "";
+function renderTimerPanel() {
+  const live = selectedTimer();
+  const panel = $("k-timer");
+  panel.classList.toggle("live", Boolean(live));
+  $("k-tm-setup").hidden = Boolean(live);
+  $("k-tm-live").hidden = !live;
+  $("k-tm-presets-wrap").hidden = Boolean(live);
+
+  // Venstre: timerne som går. Før start er de små, mens en timer vises, er de en liste med «Ny timer».
+  $("k-tm-running-wrap").hidden = !timers.length;
+  $("k-tm-running-h").textContent = live ? "Timere" : "Går nå";
+  const cards = timers.map(timerCard);
+  if (live) cards.push(h("button", { type: "button", class: "k-tm-new", onclick: () => ((tmSelected = null), renderTimerPanel()) }, h("span", { "aria-hidden": "true" }, "+"), "Ny timer"));
+  $("k-tm-running").replaceChildren(...cards);
+
+  // Midten
+  if (live) {
+    $("k-tm-live-name").textContent = Timer.name(live);
+    renderLiveTime(live);
   } else {
-    chip.setAttribute("aria-label", "Start en timer");
+    $("k-tm-time").textContent = Timer.clock(tmSeconds * 1000);
+    for (const b of $("k-tm-presets").children) b.setAttribute("aria-pressed", String(Number(b.dataset.min) * 60 === tmSeconds));
   }
-  // Timeren tar plass fra de andre merkene, så de tegnes på nytt når den starter eller stopper.
-  if (chip.dataset.busy !== String(timers.length > 0)) {
-    chip.dataset.busy = String(timers.length > 0);
-    syncChips();
-  }
-}
 
-function renderTimerList() {
-  const list = $("k-timer-list");
-  list.replaceChildren(
-    ...timers.map((t) =>
-      h(
-        "div",
-        { class: t.ringing ? "k-timer-row ringing" : "k-timer-row", "data-id": t.id },
-        h("div", {}, h("strong", {}, Timer.name(t)), h("span", {}, t.roomName ? `Blinker i ${t.roomName}` : "Uten blinking")),
-        h("span", { class: "k-timer-left" }, t.ringing ? "Ferdig" : Timer.clock(Timer.left(t))),
-        h("button", { type: "button", onclick: () => api("POST", `/api/timers/${t.id}/extend`, { seconds: 60 }) }, "+1 min"),
-        h("button", { type: "button", class: "stop", onclick: () => api("DELETE", `/api/timers/${t.id}`) }, t.ringing ? "Stopp" : "Avbryt"),
-      ),
-    ),
-  );
-}
-
-let timerRoomsKey = "";
-function renderTimerRooms() {
+  // Høyre: varslingsvalg og rom
   const list = Timer.rooms(byId);
-  const chosen = Timer.pickRoom(list, storage("kTimerRoom"));
-  const key = JSON.stringify([chosen, list.map((r) => [r.id, r.metadata?.name])]);
-  if (key === timerRoomsKey) return;
-  timerRoomsKey = key;
-  const pick = (id) => {
-    storage("kTimerRoom", id);
-    renderTimerRooms();
-  };
-  $("k-timer-rooms").replaceChildren(
-    h("button", { type: "button", "aria-pressed": String(chosen === ""), onclick: () => pick("") }, "Ingen"),
-    ...list.map((r) => h("button", { type: "button", "aria-pressed": String(chosen === r.id), onclick: () => pick(r.id) }, r.metadata?.name ?? "Rom")),
+  const room = live ? live.room : Timer.pickRoom(list, storage("kTimerRoom"));
+  const roomName = list.find((r) => r.id === room)?.metadata?.name ?? "";
+  const alerts = live ? live.alerts ?? {} : tmAlerts;
+  $("k-tm-alerts").replaceChildren(
+    ...Timer.ALERTS.map((a) => {
+      const btn = h(
+        "button",
+        { type: "button", class: "k-tm-alert", disabled: a.soon || undefined, "aria-pressed": String(Boolean(alerts[a.key]) && !a.soon), onclick: () => setAlert(a.key, !alerts[a.key]) },
+        h("span", {}, h("strong", {}, a.name), h("small", {}, a.sub(roomName))),
+      );
+      btn.insertAdjacentHTML("afterbegin", a.icon);
+      return btn;
+    }),
   );
+  const key = JSON.stringify([room, list.map((r) => [r.id, r.metadata?.name])]);
+  if (key !== tmRoomsKey) {
+    tmRoomsKey = key;
+    $("k-tm-rooms").replaceChildren(
+      ...list.map((r) => h("button", { type: "button", "aria-pressed": String(r.id === room), onclick: () => setRoom(r.id) }, r.metadata?.name ?? "Rom")),
+    );
+  }
+}
+
+function renderLiveTime(t) {
+  const left = $("k-tm-live-left");
+  left.textContent = t.ringing ? "Ferdig" : Timer.clock(Timer.left(t));
+  left.classList.toggle("long", Timer.left(t) >= 3600_000 || t.ringing);
+  $("k-tm-live-end").textContent = t.ringing ? "Trykk Stopp for å slå av" : `Ferdig kl. ${Timer.endsAt(t)}`;
+  const arc = $("k-tm-arc");
+  arc.style.strokeDasharray = `${RING_LEN}`;
+  arc.style.strokeDashoffset = `${RING_LEN * Timer.progress(t)}`;
+}
+
+function setAlert(key, on) {
+  const live = selectedTimer();
+  if (live) {
+    live.alerts = { ...live.alerts, [key]: on };
+    renderTimerPanel();
+    api("PATCH", `/api/timers/${live.id}`, { alerts: { [key]: on } });
+    return;
+  }
+  tmAlerts = { ...tmAlerts, [key]: on };
+  storage("kTmAlerts", JSON.stringify(tmAlerts));
+  renderTimerPanel();
+}
+
+function setRoom(id) {
+  const live = selectedTimer();
+  if (live) {
+    live.room = id;
+    api("PATCH", `/api/timers/${live.id}`, { room: id });
+  } else storage("kTimerRoom", id);
+  tmRoomsKey = "";
+  renderTimerPanel();
+}
+
+function setSeconds(s) {
+  tmSeconds = Math.min(24 * 3600, Math.max(60, s));
+  storage("kTmSeconds", String(tmSeconds));
+  renderTimerPanel();
 }
 
 function renderAlarm() {
@@ -1429,77 +1491,77 @@ function renderAlarm() {
     beepTimer = null;
     return;
   }
+  const a = ringing.alerts ?? {};
   $("k-alarm-title").textContent = ringing.label ? `${ringing.label} er ferdig` : "Timeren er ferdig";
-  $("k-alarm-detail").textContent = [Timer.duration(ringing.durationMs), ringing.roomName ? `lyset blinker i ${ringing.roomName}` : ""].filter(Boolean).join(" · ");
+  const light = ringing.roomName && (a.blink || a.red) ? `lyset ${a.red ? "er rødt" : "blinker"} i ${ringing.roomName}` : "";
+  $("k-alarm-detail").textContent = [Timer.duration(ringing.durationMs), light].filter(Boolean).join(" · ");
   if (alarmShown !== ringing.id) {
     alarmShown = ringing.id;
     el.hidden = false;
-    if ($("k-timer").open) $("k-timer").close();
     $("k-alarm-stop").focus();
   }
-  if (!beepTimer) {
+  const wantBeep = a.sound !== false;
+  if (wantBeep && !beepTimer) {
     Timer.beep(audio);
     beepTimer = setInterval(() => Timer.beep(audio), 2500);
+  } else if (!wantBeep && beepTimer) {
+    clearInterval(beepTimer);
+    beepTimer = null;
   }
 }
 
 function renderTimers() {
-  renderTimerChip();
-  if ($("k-timer").open) renderTimerList();
+  renderTimerTab();
+  renderTimerPanel();
   renderAlarm();
 }
 
-async function startTimer(minutes) {
+$("k-tm-presets").replaceChildren(
+  ...Timer.PRESETS.map((m) => h("button", { type: "button", "data-min": m, onclick: () => setSeconds(m * 60) }, m === 60 ? "1 time" : `${m} min`)),
+);
+$("k-tm-minus").addEventListener("click", () => setSeconds(tmSeconds - 60));
+$("k-tm-plus").addEventListener("click", () => setSeconds(tmSeconds + 60));
+$("k-tm-start").addEventListener("click", async () => {
   const list = Timer.rooms(byId);
   const room = Timer.pickRoom(list, storage("kTimerRoom"));
-  const label = $("k-timer-name").value.trim();
-  const t = await api("POST", "/api/timers", { seconds: Math.round(minutes * 60), label, room: room || undefined });
+  const t = await api("POST", "/api/timers", {
+    seconds: tmSeconds,
+    label: $("k-tm-name").value.trim(),
+    room: room || undefined,
+    alerts: { sound: tmAlerts.sound, blink: tmAlerts.blink, red: tmAlerts.red },
+  });
   if (!t) return;
-  $("k-timer-name").value = "";
-  $("k-timer").close();
-  toast(`${Timer.name(t)} startet${t.roomName ? `, lyset blinker i ${t.roomName}` : ""}`);
+  $("k-tm-name").value = "";
+  tmSelected = t.id;
+  // Serveren sender den nye lista straks, men vis timeren med en gang.
+  if (!timers.some((x) => x.id === t.id)) timers = Timer.sorted([...timers, t]);
+  renderTimers();
+});
+for (const b of document.querySelectorAll("#k-tm-live [data-add]")) {
+  b.addEventListener("click", () => {
+    const t = selectedTimer();
+    if (t) api("POST", `/api/timers/${t.id}/extend`, { seconds: Number(b.dataset.add) });
+  });
 }
-
-$("k-timer-presets").replaceChildren(...Timer.PRESETS.map((m) => h("button", { type: "button", onclick: () => startTimer(m) }, m === 60 ? "1 time" : `${m} min`)));
-$("k-timer-custom").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const m = Number($("k-timer-min").value);
-  if (m > 0) {
-    startTimer(m);
-    $("k-timer-min").value = "";
-  }
-});
-$("k-timer-chip").addEventListener("click", () => {
-  if (timers.some((t) => t.ringing)) {
-    alarmShown = null;
-    renderAlarm();
-    return;
-  }
-  renderTimerRooms();
-  renderTimerList();
-  $("k-timer").showModal();
-});
-$("k-timer-close").addEventListener("click", () => $("k-timer").close());
-$("k-timer").addEventListener("click", (e) => {
-  if (e.target === e.currentTarget) e.currentTarget.close();
-});
-$("k-alarm-stop").addEventListener("click", () => {
-  const t = timers.find((x) => x.id === alarmShown);
+$("k-tm-stop").addEventListener("click", () => {
+  const t = selectedTimer();
   if (t) api("DELETE", `/api/timers/${t.id}`);
 });
+$("k-alarm-stop").addEventListener("click", () => {
+  if (alarmShown) api("DELETE", `/api/timers/${alarmShown}`);
+});
 $("k-alarm-more").addEventListener("click", () => {
-  const t = timers.find((x) => x.id === alarmShown);
-  if (t) api("POST", `/api/timers/${t.id}/extend`, { seconds: 60 });
+  if (alarmShown) api("POST", `/api/timers/${alarmShown}/extend`, { seconds: 60 });
 });
 // Nedtellingen oppdateres hvert sekund mens en timer går.
 setInterval(() => {
   if (!timers.length) return;
-  renderTimerChip();
-  if ($("k-timer").open) {
-    for (const row of document.querySelectorAll("#k-timer-list .k-timer-row:not(.ringing)")) {
-      const t = timers.find((x) => x.id === row.dataset.id);
-      if (t) row.querySelector(".k-timer-left").textContent = Timer.clock(Timer.left(t));
-    }
+  renderTimerTab();
+  for (const card of document.querySelectorAll("#k-tm-running .k-tm-card")) {
+    const t = timers.find((x) => x.id === card.dataset.id);
+    if (t && !t.ringing) card.querySelector("strong").textContent = Timer.clock(Timer.left(t));
   }
+  const live = selectedTimer();
+  if (live && !$("k-timer").hidden) renderLiveTime(live);
 }, 1000);
-renderTimerChip();
+renderTimers();
