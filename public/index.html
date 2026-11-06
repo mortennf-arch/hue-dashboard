@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <title>Hjemme · Hue-dashbord</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="stovsuger.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='%23F5B544'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -52,6 +53,9 @@
       </button>
       <button type="button" role="tab" id="tab-idag" data-tab="idag" aria-controls="panel-idag" aria-selected="false" hidden>
         <span class="tab-name">I dag</span><span class="tab-status" id="status-idag"></span>
+      </button>
+      <button type="button" role="tab" id="tab-stovsuger" data-tab="stovsuger" aria-controls="panel-stovsuger" aria-selected="false" hidden>
+        <span class="tab-name">Støvsuger</span><span class="tab-status" id="status-stovsuger"></span>
       </button>
       <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="panel-sikkerhet" aria-selected="false">
         <span class="tab-name">Sikkerhet</span><span class="tab-status" id="status-sikkerhet"></span>
@@ -160,6 +164,10 @@
           <p class="wx-credit">Værdata fra MET Norway (yr)</p>
         </section>
       </div>
+    </section>
+
+    <section role="tabpanel" id="panel-stovsuger" aria-labelledby="tab-stovsuger" hidden>
+      <div id="rb-root"></div>
     </section>
 
     <section role="tabpanel" id="panel-sikkerhet" aria-labelledby="tab-sikkerhet" class="security-panel" hidden>
@@ -354,6 +362,7 @@
   </dialog>
   <script src="idag.js"></script>
   <script src="timer.js"></script>
+  <script src="stovsuger.js"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

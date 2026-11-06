@@ -409,6 +409,7 @@ function renderHealth() {
 // ---------- Verisure (bare lesing) ----------
 
 let verisure = null;
+let roborock = null;
 let timers = []; // fra serveren, se timer.js
 let vsBusy = false;
 let vsError = "";
@@ -2188,7 +2189,7 @@ function renderSonosDialogs() {
 
 // ---------- Faner ----------
 
-const TABS = ["lys", "musikk", "timer", "idag", "sikkerhet"];
+const TABS = ["lys", "musikk", "timer", "idag", "stovsuger", "sikkerhet"];
 let tab = TABS.includes(storage("tab")) ? storage("tab") : "lys";
 
 function showTab(name, focus = false) {
@@ -2211,6 +2212,22 @@ function setStatus(id, text, kind = "") {
 }
 
 const shortTime = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
+
+// ---------- Støvsuger (se stovsuger.js) ----------
+
+Stovsuger.mount(document.getElementById("rb-root"));
+
+function setRoborock(next) {
+  roborock = next;
+  Stovsuger.update(next);
+  const btn = document.getElementById("tab-stovsuger");
+  const had = !btn.hidden;
+  btn.hidden = !roborock;
+  if (!had && roborock && storage("tab") === "stovsuger" && tab !== "stovsuger") showTab("stovsuger");
+  if (had && !roborock && tab === "stovsuger") showTab("lys");
+  const st = Stovsuger.tabStatus(roborock);
+  setStatus("status-stovsuger", st.text, st.kind);
+}
 
 function renderTabs() {
   const roomsOn = all("room").filter((r) => serviceOf(r, "grouped_light")?.on?.on).length;
@@ -2466,6 +2483,7 @@ function connect() {
     sonosAt = Date.now();
     spotifyOn = Boolean(snap.spotify);
     verisure = snap.verisure ?? null;
+    setRoborock(snap.roborock ?? null);
     setTimers(snap.timers ?? []);
     eventItems.length = 0;
     addEvents(snap.recent ?? [], false);
@@ -2480,6 +2498,7 @@ function connect() {
     verisure = JSON.parse(e.data);
     scheduleRender();
   });
+  es.addEventListener("roborock", (e) => setRoborock(JSON.parse(e.data)));
   es.addEventListener("timers", (e) => setTimers(JSON.parse(e.data)));
   es.addEventListener("bridge", (e) => {
     bridge = JSON.parse(e.data);

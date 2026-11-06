@@ -7,6 +7,7 @@ import { startWebServer, type WebServer } from "./server.js";
 import { SonosManager } from "./sonos.js";
 import { SpotifyClient } from "./spotify.js";
 import { VerisureClient } from "./verisure.js";
+import { RoborockManager } from "./roborock.js";
 import { WeatherService } from "./weather.js";
 import { WasteCalendar } from "./waste.js";
 import { TimerManager } from "./timers.js";
@@ -110,6 +111,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
   }
   let verisure: VerisureClient | null = null;
   let timers: TimerManager | undefined;
+  let roborock: RoborockManager | null = null;
   if (opts.web) {
     let lastStatus = "";
     let listed = false;
@@ -129,10 +131,21 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
     if (v.configured) verisure = v;
     timers = new TimerManager(client, store);
     await timers.load();
-    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined, weather: new WeatherService(), waste: new WasteCalendar(), timers });
+    // Støvsugerne sendes høyst fire ganger i sekundet til skjermene.
+    let rbTimer: NodeJS.Timeout | null = null;
+    if (process.env.ROBOROCK !== "off") {
+      roborock = new RoborockManager(() => {
+        rbTimer ??= setTimeout(() => {
+          rbTimer = null;
+          if (roborock) web?.broadcastRoborock(roborock.state);
+        }, 250);
+      }, cfg.bridgeIp);
+    }
+    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined, weather: new WeatherService(), waste: new WasteCalendar(), timers, roborock: roborock ?? undefined });
     console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
     sonos?.start().catch((err) => console.error("Sonos:", err.message));
     verisure?.start().catch((err) => console.error("Verisure:", err.message));
+    roborock?.start().catch((err) => console.error("Roborock:", err.message));
   }
   console.log("Lytter på hendelser. Skru på et lys, trykk på en bryter eller ring på døra. Ctrl+C avslutter.");
   console.log("");
@@ -176,6 +189,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
       stop();
       sonos?.stop();
       verisure?.stop();
+      roborock?.stop();
       web?.close();
       timers?.close();
       client.close();

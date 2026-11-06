@@ -17,6 +17,8 @@ Miljøvariabler:
   SPOTIFY_CLIENT_SECRET
   VERISURE_USERNAME    E-post og passord til Verisure-appen, for alarmstatus, dører, temperatur og logg (bare lesing)
   VERISURE_PASSWORD
+  ROBOROCK             Sett til «off» for å skru av Støvsuger-fanen. Innloggingen gjøres i fanen
+  ROBOROCK_SUBNET      De tre første tallene i nettet der støvsugerne er, hvis det ikke er samme som Hue-broen
   PORT                 Porten dashbordet svarer på (standard: 8095)
   DATA_DIR             Hvor config.json og logger lagres (standard: ./data)
   PAIR_TIMEOUT_S       Hvor lenge paringen venter på knappetrykk. 0 = for alltid (standard: 60)`;

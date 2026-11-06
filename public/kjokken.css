@@ -177,6 +177,19 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 
 /* ---------- Lys ---------- */
 .k-lys, .k-sikkerhet { display: flex; flex-direction: column; gap: 16px; }
+.k-stovsuger { overflow-y: auto; overscroll-behavior: contain; }
+.k-tabs button { white-space: nowrap; }
+#k-bell-chip-text { overflow: hidden; text-overflow: ellipsis; }
+/* Med støvsugerfanen blir det seks faner. Da må datoen vike, og fanene bli litt smalere. */
+@media (max-width: 1500px) {
+  .k-top:has(#tab-stovsuger:not([hidden])) { grid-template-columns: auto auto minmax(0, 1fr); }
+  .k-top:has(#tab-stovsuger:not([hidden])) .k-date { display: none; }
+  .k-top:has(#tab-stovsuger:not([hidden])) .k-tabs button { padding: 0 12px; gap: 6px; }
+}
+@media (max-width: 1150px) {
+  .k-top:has(#tab-stovsuger:not([hidden])) .k-tabs button { font-size: 16px; padding: 0 10px; }
+  .k-top:has(#tab-stovsuger:not([hidden])) .k-tab-extra { display: none; }
+}
 .k-lys-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .k-secondary { min-height: 52px; padding: 0 20px; border-radius: 14px; border: 1px solid var(--border-2); background: var(--surface-2); font-size: 17px; font-weight: 600; }
 .k-light-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; overflow-y: auto; min-height: 0; align-content: start; padding: 2px; }
