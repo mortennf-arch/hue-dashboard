@@ -12,6 +12,8 @@ import type http from "node:http";
 export interface Photo {
   id: string;
   folder: string;
+  /** Hele mappestien under bildemappa, for eksempel «2011 · Påske». Tom for bilder rett i bildemappa. */
+  album: string;
   /** Når bildet ble tatt (EXIF), ellers når filen sist ble endret. ISO-dato, YYYY-MM-DD. */
   date: string;
 }
@@ -106,7 +108,8 @@ export class PhotoLibrary {
           const rel = path.relative(this.dir, full);
           const id = Buffer.from(rel).toString("base64url");
           const date = (ext === ".jpg" || ext === ".jpeg" ? await exifDate(full) : null) ?? (await stat(full)).mtime.toISOString().slice(0, 10);
-          photos.push({ id, folder, date });
+          const album = path.dirname(rel) === "." ? "" : path.dirname(rel).split(path.sep).join(" · ");
+          photos.push({ id, folder, album, date });
           files.set(id, full);
         }
       };
