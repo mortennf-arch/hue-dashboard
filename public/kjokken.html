@@ -26,6 +26,10 @@
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
         Lys
       </button>
+      <button type="button" role="tab" id="tab-timer" data-tab="timer" aria-controls="k-timer">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M10 2h4M12 2v3"/></svg>
+        Timer<span id="k-timer-tab" class="k-tab-extra"></span>
+      </button>
       <button type="button" role="tab" id="tab-idag" data-tab="idag" aria-controls="k-idag" hidden>
         <span id="k-idag-icon" class="k-idag-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z"/></svg></span>
         I dag<span id="k-idag-temp" class="k-idag-temp"></span>
@@ -36,7 +40,6 @@
       </button>
     </nav>
     <div class="k-status">
-      <button type="button" id="k-timer-chip" class="k-chip k-timer-chip" aria-haspopup="dialog"></button>
       <button type="button" id="k-bin-chip" class="k-chip k-bin-chip" hidden></button>
       <span id="k-bell-chip" class="k-chip">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -112,6 +115,53 @@
       <p id="k-lys-hint" class="k-hint" hidden></p>
     </section>
 
+    <section id="k-timer" role="tabpanel" aria-labelledby="tab-timer" class="k-timer" hidden>
+      <div class="k-tm-left">
+        <section id="k-tm-running-wrap" class="k-tm-group" aria-labelledby="k-tm-running-h" hidden>
+          <h2 id="k-tm-running-h" class="k-label">Går nå</h2>
+          <div id="k-tm-running" class="k-tm-running"></div>
+        </section>
+        <section id="k-tm-presets-wrap" class="k-tm-group" aria-labelledby="k-tm-presets-h">
+          <h2 id="k-tm-presets-h" class="k-label">Ny timer</h2>
+          <div id="k-tm-presets" class="k-tm-presets"></div>
+        </section>
+      </div>
+
+      <section id="k-tm-setup" class="k-tm-center" aria-label="Ny timer">
+        <div class="k-tm-set">
+          <button type="button" id="k-tm-minus" class="k-tm-step" aria-label="Ett minutt mindre">−</button>
+          <span id="k-tm-time" class="k-tm-time">10:00</span>
+          <button type="button" id="k-tm-plus" class="k-tm-step" aria-label="Ett minutt mer">+</button>
+        </div>
+        <label class="k-tm-name">Navn (kan stå tomt)<input id="k-tm-name" type="text" maxlength="40" placeholder="For eksempel Pizza" autocomplete="off" enterkeyhint="done"></label>
+        <button type="button" id="k-tm-start" class="k-tm-start">Start</button>
+      </section>
+
+      <section id="k-tm-live" class="k-tm-center" aria-labelledby="k-tm-live-name" hidden>
+        <div class="k-tm-ring">
+          <svg viewBox="0 0 400 400" aria-hidden="true"><circle cx="200" cy="200" r="180" class="k-tm-track"/><circle id="k-tm-arc" cx="200" cy="200" r="180" class="k-tm-arc" transform="rotate(-90 200 200)"/></svg>
+          <div class="k-tm-ring-text">
+            <span id="k-tm-live-name" class="k-tm-live-name"></span>
+            <span id="k-tm-live-left" class="k-tm-live-left"></span>
+            <span id="k-tm-live-end" class="k-tm-live-end"></span>
+          </div>
+        </div>
+        <div class="k-tm-actions">
+          <button type="button" data-add="60">+1 min</button>
+          <button type="button" data-add="300">+5 min</button>
+          <button type="button" data-add="600">+10 min</button>
+          <button type="button" id="k-tm-stop" class="stop">Stopp</button>
+        </div>
+      </section>
+
+      <section class="k-tm-right" aria-labelledby="k-tm-alerts-h">
+        <h2 id="k-tm-alerts-h" class="k-label">Varsle med</h2>
+        <div id="k-tm-alerts" class="k-tm-alerts"></div>
+        <h3 class="k-label">Rom for lyset</h3>
+        <div id="k-tm-rooms" class="k-tm-rooms" role="group" aria-label="Rom for lyset"></div>
+      </section>
+    </section>
+
     <section id="k-idag" role="tabpanel" aria-labelledby="tab-idag" class="k-idag" hidden>
       <div class="k-idag-left">
         <article id="k-wx-now" class="k-card k-wx-now" aria-labelledby="k-wx-h" hidden>
@@ -174,28 +224,6 @@
   </div>
   <p id="k-search-hint" class="k-hint" hidden></p>
   <div id="k-results" class="k-results"></div>
-</dialog>
-
-<dialog id="k-timer" class="k-dialog k-timer-dialog" aria-labelledby="k-timer-h">
-  <div class="k-dialog-head">
-    <h2 id="k-timer-h">Timer</h2>
-    <button type="button" id="k-timer-close" class="k-close" aria-label="Lukk">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-    </button>
-  </div>
-  <div id="k-timer-list" class="k-timer-list"></div>
-  <h3 class="k-label">Blink med lyset i</h3>
-  <div id="k-timer-rooms" class="k-timer-rooms" role="group" aria-label="Rom som skal blinke"></div>
-  <label class="k-label" for="k-timer-name">Navn (kan stå tomt)</label>
-  <input id="k-timer-name" class="k-q" type="text" maxlength="40" placeholder="For eksempel Pasta" autocomplete="off" enterkeyhint="done">
-  <h3 class="k-label">Start en timer</h3>
-  <div id="k-timer-presets" class="k-timer-presets"></div>
-  <form id="k-timer-custom" class="k-timer-custom">
-    <label for="k-timer-min">Egen tid</label>
-    <input id="k-timer-min" type="number" inputmode="numeric" min="1" max="1440" placeholder="min" required>
-    <span>min</span>
-    <button type="submit">Start</button>
-  </form>
 </dialog>
 
 <div id="k-alarm" class="k-ring k-alarm" role="alertdialog" aria-labelledby="k-alarm-title" hidden>
