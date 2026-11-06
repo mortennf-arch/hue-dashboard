@@ -11,6 +11,7 @@ import { RoborockManager } from "./roborock.js";
 import { WeatherService } from "./weather.js";
 import { WasteCalendar } from "./waste.js";
 import { TimerManager } from "./timers.js";
+import { PhotoLibrary } from "./photos.js";
 
 const SKIP_KEYS = new Set(["id", "id_v1", "type", "owner", "service_id"]);
 
@@ -112,6 +113,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
   let verisure: VerisureClient | null = null;
   let timers: TimerManager | undefined;
   let roborock: RoborockManager | null = null;
+  let photos: PhotoLibrary | null = null;
   if (opts.web) {
     let lastStatus = "";
     let listed = false;
@@ -141,7 +143,11 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
         }, 250);
       }, cfg.bridgeIp);
     }
-    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined, weather: new WeatherService(), waste: new WasteCalendar(), timers, roborock: roborock ?? undefined });
+    if (process.env.BILDER !== "off") {
+      photos = new PhotoLibrary(process.env.BILDER_DIR || "/bilder");
+      await photos.start();
+    }
+    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined, weather: new WeatherService(), waste: new WasteCalendar(), timers, roborock: roborock ?? undefined, photos: photos ?? undefined });
     console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
     sonos?.start().catch((err) => console.error("Sonos:", err.message));
     verisure?.start().catch((err) => console.error("Verisure:", err.message));
@@ -192,6 +198,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
       roborock?.stop();
       web?.close();
       timers?.close();
+      photos?.close();
       client.close();
       resolve();
     };

@@ -179,14 +179,37 @@ Roborock har ikke noe offisielt API. Dette gjør det samme som Home Assistant, o
 - **Tar du støvsugeren ut av appen og legger den inn igjen,** får den en ny nøkkel. Trykk da «Hent støvsugere og rom på nytt».
 - Vil du skru av fanen helt, sett `ROBOROCK: "off"`.
 
+## Bilder (valgfritt)
+
+Fanen **Bilder** viser bilder fra en mappe på TrueNAS, og kan gå over i lysbildevisning når ingen har trykket på skjermen en stund. Hver mappe rett under bildemappa blir et valg i fanen (for eksempel «Hytta» eller «Sommer 2025»), og «Denne dagen» viser bilder tatt på samme dato tidligere år.
+
+1. Legg bildene i en mappe på TrueNAS, for eksempel via SMB-delingen. Undermapper går fint.
+2. Mappen må kunne leses av brukeren `apps` (id 568). Er det et eget dataset, går du til **Datasets**, velger det og trykker **Edit** under **Permissions**. Gi `apps` lesetilgang (Read).
+3. I TrueNAS: **Apps > hue-dashboard > Edit**. Legg til en linje under `volumes`, rett under linjen med `:/data`:
+
+   ```yaml
+         - /mnt/storage/bilder:/bilder:ro
+   ```
+
+   Bytt ut `/mnt/storage/bilder` med stien til mappen din. `:ro` betyr at appen bare kan lese bildene, aldri endre eller slette dem.
+4. Trykk **Save**. Loggen viser for eksempel `Bilder: 1234 bilder i 5 mapper`.
+
+Appen ser etter nye bilder hver halvtime, eller når du trykker «Se etter bilder på nytt».
+
+- **Formater:** JPEG, PNG, WebP, GIF og AVIF. Bilder fra iPhone er ofte HEIC, og det kan ikke Chrome vise. Fanen sier hvor mange bilder den hoppet over. Stiller du iPhone på **Innstillinger > Kamera > Formater > Mest kompatibel**, blir nye bilder JPEG.
+- **Datoen** hentes fra bildet (EXIF), ellers fra når filen ble lagret.
+- **Lysbildevisningen** starter av seg selv etter 5 minutter på nettbrettet. I dashbordet er det av, men det kan slås på i fanen. Valget gjelder bare skjermen der det gjøres. Et trykk hvor som helst lukker den. Ringer det på døra eller en timer, lukkes den.
+- Ligger bildene et annet sted i containeren, kan du sette `BILDER_DIR`. Vil du skru av fanen helt, sett `BILDER: "off"`.
+
 ## Kjøkkennettbrett (valgfritt)
 
-En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har fanene Musikk, Lys, Timer, I dag, Støvsuger og Sikkerhet.
+En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har fanene Musikk, Lys, Timer, I dag, Støvsuger, Bilder og Sikkerhet.
 
 - **Musikk:** rommene til venstre kommer rett fra Sonos. Rom som er merket med gult, spiller sammen. Trykk på et rom for å legge det til eller ta det ut. Med flere rom valgt får hvert rom sin egen volumknapp, pluss «Alle rom».
 - **Lys:** av/på, lysstyrke og scener for hvert Hue-rom.
 - **I dag:** været fra yr nå, de neste timene og dagene, og når søpla hentes. Temperaturen står på fanen, og «Restavfall i morgen» dukker opp øverst til høyre dagen før. Krever `HJEM_ADRESSE` og `TOMMEKALENDER_URL`, se over.
 - **Støvsuger:** de samme knappene som i dashbordet, bare større. Se Roborock-avsnittet over.
+- **Bilder:** bilder fra en mappe på TrueNAS, og lysbildevisning når nettbrettet ikke er i bruk. Se Bilder-avsnittet over.
 - **Dørklokke:** når noen ringer på, dekker et varsel hele skjermen med en lyd, uansett hvilken fane som er åpen.
 
 **Oppsett på et Android-nettbrett, uten ekstra apper:**

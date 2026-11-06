@@ -7,6 +7,7 @@
   <title>Hjemme · Hue-dashbord</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="stovsuger.css">
+  <link rel="stylesheet" href="bilder.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='%23F5B544'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -56,6 +57,9 @@
       </button>
       <button type="button" role="tab" id="tab-stovsuger" data-tab="stovsuger" aria-controls="panel-stovsuger" aria-selected="false" hidden>
         <span class="tab-name">Støvsuger</span><span class="tab-status" id="status-stovsuger"></span>
+      </button>
+      <button type="button" role="tab" id="tab-bilder" data-tab="bilder" aria-controls="panel-bilder" aria-selected="false">
+        <span class="tab-name">Bilder</span><span class="tab-status" id="status-bilder"></span>
       </button>
       <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="panel-sikkerhet" aria-selected="false">
         <span class="tab-name">Sikkerhet</span><span class="tab-status" id="status-sikkerhet"></span>
@@ -168,6 +172,10 @@
 
     <section role="tabpanel" id="panel-stovsuger" aria-labelledby="tab-stovsuger" hidden>
       <div id="rb-root"></div>
+    </section>
+
+    <section role="tabpanel" id="panel-bilder" aria-labelledby="tab-bilder" hidden>
+      <div id="bd-root"></div>
     </section>
 
     <section role="tabpanel" id="panel-sikkerhet" aria-labelledby="tab-sikkerhet" class="security-panel" hidden>
@@ -363,6 +371,7 @@
   <script src="idag.js"></script>
   <script src="timer.js"></script>
   <script src="stovsuger.js"></script>
+  <script src="bilder.js"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>

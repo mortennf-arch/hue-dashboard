@@ -178,17 +178,22 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 /* ---------- Lys ---------- */
 .k-lys, .k-sikkerhet { display: flex; flex-direction: column; gap: 16px; }
 .k-stovsuger { overflow-y: auto; overscroll-behavior: contain; }
+.k-bilder { overflow-y: auto; overscroll-behavior: contain; }
 .k-tabs button { white-space: nowrap; }
 #k-bell-chip-text { overflow: hidden; text-overflow: ellipsis; }
-/* Med støvsugerfanen blir det seks faner. Da må datoen vike, og fanene bli litt smalere. */
+/* Med Bilder er det seks faner, og sju med støvsugeren. Da må datoen vike, og fanene bli smalere. */
 @media (max-width: 1500px) {
-  .k-top:has(#tab-stovsuger:not([hidden])) { grid-template-columns: auto auto minmax(0, 1fr); }
-  .k-top:has(#tab-stovsuger:not([hidden])) .k-date { display: none; }
-  .k-top:has(#tab-stovsuger:not([hidden])) .k-tabs button { padding: 0 12px; gap: 6px; }
-}
-@media (max-width: 1150px) {
+  .k-top { grid-template-columns: auto auto minmax(0, 1fr); }
+  .k-date { display: none; }
+  .k-tabs button { padding: 0 12px; gap: 6px; }
+  .k-top:has(#tab-stovsuger:not([hidden])) .k-tabs { gap: 2px; }
   .k-top:has(#tab-stovsuger:not([hidden])) .k-tabs button { font-size: 16px; padding: 0 10px; }
   .k-top:has(#tab-stovsuger:not([hidden])) .k-tab-extra { display: none; }
+}
+@media (max-width: 1150px) {
+  .k-tabs button { font-size: 16px; padding: 0 10px; }
+  .k-tab-extra { display: none; }
+  .k-top:has(#tab-stovsuger:not([hidden])) .k-tabs button svg { display: none; }
 }
 .k-lys-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .k-secondary { min-height: 52px; padding: 0 20px; border-radius: 14px; border: 1px solid var(--border-2); background: var(--surface-2); font-size: 17px; font-weight: 600; }
@@ -353,7 +358,7 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 /* ---------- Mindre skjermer og stående nettbrett ---------- */
 @media (max-width: 1100px) {
   .k-page { padding: 16px 18px; gap: 14px; }
-  .k-tabs button { padding: 0 16px; }
+  .k-tabs button { padding: 0 10px; }
   .k-music { grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(220px, 260px); gap: 14px; }
   .k-art { width: 140px; height: 140px; }
   .k-track-text strong { font-size: 24px; }

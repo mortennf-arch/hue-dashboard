@@ -1,0 +1,52 @@
+/* Fanen «Bilder» og lysbildevisningen, felles for dashbordet og kjøkkenvisningen. Bruker fargene fra siden den står i. */
+.bd { --bd-btn: 44px; --bd-font: 15px; --bd-frame: min(56vh, 520px); display: grid; grid-template-columns: minmax(180px, 230px) minmax(0, 1fr) minmax(240px, 290px); gap: 20px; align-items: start; font-size: var(--bd-font); }
+.bd-big { --bd-btn: 58px; --bd-font: 17px; --bd-frame: calc(100dvh - 300px); height: 100%; }
+.bd p { margin: 0; }
+.bd-h { margin: 0 0 10px; font-size: 0.82em; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+.bd-left, .bd-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bd-right .bd-h:not(:first-child) { margin-top: 10px; }
+.bd-folders { display: flex; flex-direction: column; gap: 8px; }
+.bd-chip { min-height: var(--bd-btn); padding: 0 14px; border-radius: 12px; border: 1px solid var(--border-2); background: var(--surface); text-align: left; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.bd-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.bd-seg .bd-chip { text-align: center; padding: 0 4px; }
+.bd-note { font-size: 0.85em; color: var(--muted); }
+
+.bd-center { display: flex; flex-direction: column; align-items: center; gap: 14px; min-width: 0; }
+.bd-frame { width: 100%; height: var(--bd-frame); min-height: 240px; border-radius: 20px; background: #000; overflow: hidden; position: relative; display: grid; place-items: center; border: 1px solid var(--border); }
+.bd-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.bd-none { color: var(--muted); padding: 24px; text-align: center; }
+.bd-controls { display: flex; align-items: center; gap: 14px; width: 100%; justify-content: center; }
+.bd-caption { flex: 1; min-width: 0; text-align: center; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-caption small { color: var(--muted); margin-left: 6px; }
+.bd-round { width: var(--bd-btn); height: var(--bd-btn); border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); display: grid; place-items: center; flex: none; }
+.bd-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: var(--bd-btn); padding: 0 22px; border-radius: 14px; border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.bd-btn:disabled, .bd-round:disabled { opacity: 0.45; cursor: default; }
+
+.bd-toggles { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.bd-toggle { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-height: calc(var(--bd-btn) + 12px); padding: 6px 14px; border-radius: 12px; border: 1px solid var(--border-2); background: var(--surface); text-align: left; }
+.bd-toggle small { color: var(--muted); font-size: 0.82em; }
+.bd-toggle[aria-pressed="true"] { border: 2px solid var(--accent); background: var(--accent-bg, var(--warn-bg, #2A2410)); }
+.bd-toggle[aria-pressed="true"] small { color: var(--bell-text, #FFE2AE); }
+
+.bd-empty { grid-column: 1 / -1; max-width: 620px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; }
+.bd-empty h2 { margin: 0; font-size: 1.2em; }
+.bd-empty p { color: var(--text-2); }
+
+/* Lysbildevisningen dekker hele skjermen. Dørklokka og timeren (z-index 10 og høyere) ligger over. */
+.bd-show { position: fixed; inset: 0; z-index: 8; background: #000; cursor: pointer; overflow: hidden; }
+.bd-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 1.2s ease; }
+.bd-layer.on { opacity: 1; }
+.bd-over { position: absolute; left: 28px; bottom: 28px; display: flex; flex-direction: column; gap: 2px; padding: 14px 20px; border-radius: 18px; background: rgba(0, 0, 0, 0.55); color: #fff; }
+.bd-over[hidden] { display: none; }
+.bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.bd-sub { font-size: clamp(15px, 1.8vw, 20px); color: #E4E7EC; }
+.bd-cap { position: absolute; right: 24px; bottom: 24px; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.5); color: #E4E7EC; font-size: 14px; }
+.bd-cap:empty { display: none; }
+
+@media (max-width: 1000px) {
+  .bd { grid-template-columns: minmax(0, 1fr); }
+  .bd-folders { flex-direction: row; flex-wrap: wrap; }
+  .bd-frame { height: 60vw; }
+}

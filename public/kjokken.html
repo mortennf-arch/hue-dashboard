@@ -10,6 +10,7 @@
 <title>Kjøkken</title>
 <link rel="stylesheet" href="kjokken.css">
 <link rel="stylesheet" href="stovsuger.css">
+<link rel="stylesheet" href="bilder.css">
 </head>
 <body>
 <div class="k-page">
@@ -38,6 +39,10 @@
       <button type="button" role="tab" id="tab-stovsuger" data-tab="stovsuger" aria-controls="k-stovsuger" hidden>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3"/></svg>
         Støvsuger<span id="k-stovsuger-tab" class="k-tab-extra"></span>
+      </button>
+      <button type="button" role="tab" id="tab-bilder" data-tab="bilder" aria-controls="k-bilder">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>
+        Bilder
       </button>
       <button type="button" role="tab" id="tab-sikkerhet" data-tab="sikkerhet" aria-controls="k-sikkerhet">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -197,6 +202,10 @@
       <div id="rb-root"></div>
     </section>
 
+    <section id="k-bilder" role="tabpanel" aria-labelledby="tab-bilder" class="k-bilder" hidden>
+      <div id="bd-root"></div>
+    </section>
+
     <section id="k-sikkerhet" role="tabpanel" aria-labelledby="tab-sikkerhet" class="k-sikkerhet" hidden>
       <h2 class="k-label">Sikkerhet</h2>
       <article class="k-card k-bell-card">
@@ -257,6 +266,7 @@
 <script src="idag.js"></script>
 <script src="timer.js"></script>
 <script src="stovsuger.js"></script>
+<script src="bilder.js"></script>
 <script src="kjokken.js"></script>
 </body>
 </html>
