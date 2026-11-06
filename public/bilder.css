@@ -40,10 +40,12 @@
 .bd-layer.on { opacity: 1; }
 .bd-over { position: absolute; left: 28px; bottom: 28px; display: flex; flex-direction: column; gap: 2px; padding: 14px 20px; border-radius: 18px; background: rgba(0, 0, 0, 0.55); color: #fff; }
 .bd-over[hidden] { display: none; }
+.bd-album { font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; color: var(--accent, #F5B544); margin-bottom: 4px; }
+.bd-album:empty { display: none; }
 .bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .bd-sub { font-size: clamp(15px, 1.8vw, 20px); color: #E4E7EC; }
-.bd-cap { position: absolute; right: 24px; bottom: 24px; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.5); color: #E4E7EC; font-size: 14px; }
-.bd-cap:empty { display: none; }
+.bd-cap { position: absolute; right: 24px; bottom: 24px; padding: 8px 16px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 18px; font-weight: 600; }
+.bd-cap:empty, .bd-cap[hidden] { display: none; }
 
 @media (max-width: 1000px) {
   .bd { grid-template-columns: minmax(0, 1fr); }
