@@ -41,6 +41,7 @@ I dashbordet er alt delt i tre faner: **Lys**, **Musikk** og **Sikkerhet**. Hver
 - **Helse**: lave batterier og enheter som ikke svarer.
 - **Musikk (Sonos)**: hva som spilles i hvert rom eller hver gruppe, med albumcover, spill/pause, forrige/neste, volum og demping, og volum per rom når flere rom spiller sammen. «Velg musikk» spiller Sonos-favorittene dine (spillelister, album og radio du har trykket hjerte på i Sonos-appen), og «Rom i gruppen» slår rom sammen eller fra hverandre med ett trykk, eller lar hele huset spille det samme. Dra i fremdriftslinjen for å hoppe i sangen, og åpne «Neste i køen» for å se og hoppe til resten av køen. Med Spotify-nøkler kan du også søke i Spotify der, med filter for artister, sanger, album og spillelister. En artist åpner en artistside med populære sanger, «This Is», album, featuring og artistradio. Krever `SONOS_IP`, se [docs/truenas.md](docs/truenas.md#sonos-valgfritt).
 - **I dag**: været fra yr nå, time for time og de neste dagene, med et kort varsel som «Regn fra kl. 15», og tømmekalenderen (Stavanger) med hvilke dunker som hentes når. Krever `HJEM_ADRESSE` og `TOMMEKALENDER_URL`, se [docs/truenas.md](docs/truenas.md#været-fra-yr-valgfritt).
+- **Timer**: knappen «Timer» øverst (stoppeklokka på nettbrettet) starter en timer på 1–60 minutter eller egen tid, med navn hvis du vil. Når den er ferdig, piper skjermen til du trykker Stopp eller +1 min, og lyset i rommet du valgte blinker noen ganger hvert minutt og blir slik det var. Timerne går på serveren, så de vises likt på nettbrettet og i dashbordet, og ringer selv om ingen skjerm er åpen. Etter 10 minutter stopper ringingen av seg selv.
 - **Kjøkkennettbrett** (`/kjokken`): en enklere visning med store knapper for et nettbrett på benken. Kryss av rommene som skal spille (gult = valgt), velg favoritt eller søk i Spotify, styr lys per rom, og få et varsel over hele skjermen når det ringer på. Se [docs/truenas.md](docs/truenas.md#kjøkkennettbrett-valgfritt).
 
 Alt du endrer lagres i broen, så det vises også i Hue-appen. Sletting spør alltid først.
@@ -59,6 +60,7 @@ Alt lagres i mappen `data/` (eller `/data` i Docker):
 | `resources.json` | Full tilstand fra broen ved siste oppstart | Ja |
 | `events.jsonl` | Alle hendelser, én per linje | Ja |
 | `sonos.json` | Adressene til Sonos-høyttalerne appen har sett | Ja |
+| `timere.json` | Timere som går, så de overlever en omstart | Ja |
 
 `data/` er i `.gitignore` og havner aldri i git.
 

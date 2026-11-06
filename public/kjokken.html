@@ -36,6 +36,7 @@
       </button>
     </nav>
     <div class="k-status">
+      <button type="button" id="k-timer-chip" class="k-chip k-timer-chip" aria-haspopup="dialog"></button>
       <button type="button" id="k-bin-chip" class="k-chip k-bin-chip" hidden></button>
       <span id="k-bell-chip" class="k-chip">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -175,6 +176,38 @@
   <div id="k-results" class="k-results"></div>
 </dialog>
 
+<dialog id="k-timer" class="k-dialog k-timer-dialog" aria-labelledby="k-timer-h">
+  <div class="k-dialog-head">
+    <h2 id="k-timer-h">Timer</h2>
+    <button type="button" id="k-timer-close" class="k-close" aria-label="Lukk">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div id="k-timer-list" class="k-timer-list"></div>
+  <h3 class="k-label">Blink med lyset i</h3>
+  <div id="k-timer-rooms" class="k-timer-rooms" role="group" aria-label="Rom som skal blinke"></div>
+  <label class="k-label" for="k-timer-name">Navn (kan stå tomt)</label>
+  <input id="k-timer-name" class="k-q" type="text" maxlength="40" placeholder="For eksempel Pasta" autocomplete="off" enterkeyhint="done">
+  <h3 class="k-label">Start en timer</h3>
+  <div id="k-timer-presets" class="k-timer-presets"></div>
+  <form id="k-timer-custom" class="k-timer-custom">
+    <label for="k-timer-min">Egen tid</label>
+    <input id="k-timer-min" type="number" inputmode="numeric" min="1" max="1440" placeholder="min" required>
+    <span>min</span>
+    <button type="submit">Start</button>
+  </form>
+</dialog>
+
+<div id="k-alarm" class="k-ring k-alarm" role="alertdialog" aria-labelledby="k-alarm-title" hidden>
+  <svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M10 2h4M12 2v3"/></svg>
+  <strong id="k-alarm-title">Timeren er ferdig</strong>
+  <span id="k-alarm-detail"></span>
+  <div class="k-alarm-actions">
+    <button type="button" id="k-alarm-more" class="k-alarm-more">+1 min</button>
+    <button type="button" id="k-alarm-stop" class="k-ring-close">Stopp</button>
+  </div>
+</div>
+
 <div id="k-toast" class="k-toast" role="status" hidden></div>
 
 <div id="k-ring" class="k-ring" role="alertdialog" aria-labelledby="k-ring-title" hidden>
@@ -185,6 +218,7 @@
 </div>
 
 <script src="idag.js"></script>
+<script src="timer.js"></script>
 <script src="kjokken.js"></script>
 </body>
 </html>

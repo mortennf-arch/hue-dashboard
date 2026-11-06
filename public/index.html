@@ -16,6 +16,7 @@
       <div class="grow"></div>
       <span class="chip" id="bridge-status"><span class="dot"></span><span>Kobler til …</span></span>
       <span class="chip" id="lights-on"></span>
+      <button type="button" class="chip timer-btn" id="timer-open" aria-haspopup="dialog"></button>
       <button type="button" class="primary" id="all-off">Alt av</button>
     </header>
 
@@ -27,6 +28,17 @@
       </div>
       <div class="grow"></div>
       <button type="button" class="ghost" id="bell-close">Lukk</button>
+    </section>
+
+    <section class="bell timer-ring" id="timer-ring" role="alert" hidden>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2.5 2.5M10 2h4M12 2v3"></path></svg>
+      <div class="bell-text">
+        <strong id="timer-ring-title"></strong>
+        <span id="timer-ring-detail"></span>
+      </div>
+      <div class="grow"></div>
+      <button type="button" class="ghost" id="timer-ring-more">+1 min</button>
+      <button type="button" class="primary" id="timer-ring-stop">Stopp</button>
     </section>
 
     <nav class="tabs" role="tablist" aria-label="Visning">
@@ -240,6 +252,29 @@
       </div>
     </form>
   </dialog>
+  <dialog id="timer" aria-labelledby="timer-title">
+    <div class="detail">
+      <header class="detail-head">
+        <h2 id="timer-title">Timer</h2>
+        <div class="grow"></div>
+        <button type="button" class="close" id="timer-close" aria-label="Lukk">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+      <div class="timer-list" id="timer-list"></div>
+      <p class="hint" id="timer-hint" hidden></p>
+      <label class="field"><span>Blink med lyset i</span><select class="text-in" id="timer-room"></select></label>
+      <label class="field"><span>Navn (kan stå tomt)</span><input type="text" class="text-in" id="timer-name" maxlength="40" placeholder="For eksempel Pasta"></label>
+      <div>
+        <h3 class="sub-h">Start en timer</h3>
+        <div class="timer-presets" id="timer-presets"></div>
+      </div>
+      <form class="row-actions" id="timer-custom">
+        <label class="field timer-min"><span>Egen tid i minutter</span><input type="number" class="text-in" id="timer-min" min="1" max="1440" required></label>
+        <button type="submit" class="primary">Start</button>
+      </form>
+    </div>
+  </dialog>
   <dialog id="sonos-fav" aria-labelledby="sonos-fav-title">
     <div class="detail">
       <header class="detail-head">
@@ -291,6 +326,7 @@
     </div>
   </dialog>
   <script src="idag.js"></script>
+  <script src="timer.js"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>
