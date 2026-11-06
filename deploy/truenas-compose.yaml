@@ -16,3 +16,4 @@ services:
       # VERISURE_PASSWORD: "..."
     volumes:
       - /mnt/tank/apps/hue-dashboard:/data   # ENDRE: stien til datasettet ditt
+      # - /mnt/tank/bilder:/bilder:ro         # valgfritt: mappen med bilder til fanen «Bilder», se docs/truenas.md

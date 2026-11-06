@@ -11,6 +11,7 @@ import type { WeatherService } from "./weather.js";
 import type { WasteCalendar } from "./waste.js";
 import type { TimerManager } from "./timers.js";
 import type { RoborockManager, RoborockState } from "./roborock.js";
+import type { PhotoLibrary } from "./photos.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -100,8 +101,9 @@ export async function startWebServer(opts: {
   waste?: WasteCalendar;
   timers?: TimerManager;
   roborock?: RoborockManager;
+  photos?: PhotoLibrary;
 }): Promise<WebServer> {
-  const { client, store, sonos, spotify, verisure, weather, waste, timers, roborock } = opts;
+  const { client, store, sonos, spotify, verisure, weather, waste, timers, roborock, photos } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
@@ -412,6 +414,27 @@ export async function startWebServer(opts: {
     if (req.method === "GET" && url.pathname === "/api/waste") {
       if (!waste?.configured) return json(res, 200, { configured: false, available: false, pickups: [] });
       return json(res, 200, await waste.state());
+    }
+
+    if (url.pathname === "/api/photos" || url.pathname.startsWith("/api/photos/")) {
+      if (!photos) return json(res, 404, { error: "Bilder er skrudd av" });
+      if (req.method === "GET" && url.pathname === "/api/photos") return json(res, 200, photos.state);
+      if (req.method === "GET" && url.pathname === "/api/photos/list") {
+        const folder = url.searchParams.get("folder") || undefined;
+        const day = url.searchParams.get("day") || undefined;
+        if (day && !/^\d{2}-\d{2}$/.test(day)) return json(res, 400, { error: "day må være MM-DD" });
+        return json(res, 200, photos.list(folder, day));
+      }
+      if (req.method === "POST" && url.pathname === "/api/photos/rescan") {
+        await photos.scan();
+        return json(res, 200, photos.state);
+      }
+      const file = url.pathname.match(/^\/api\/photos\/file\/([\w-]{1,1400})$/);
+      if (req.method === "GET" && file) {
+        if (await photos.serve(file[1], req, res)) return;
+        return json(res, 404, { error: "Fant ikke bildet" });
+      }
+      return json(res, 404, { error: "Ukjent adresse" });
     }
 
     if (url.pathname === "/api/timers" || url.pathname.startsWith("/api/timers/")) {

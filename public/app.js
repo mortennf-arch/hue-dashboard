@@ -2189,7 +2189,7 @@ function renderSonosDialogs() {
 
 // ---------- Faner ----------
 
-const TABS = ["lys", "musikk", "timer", "idag", "stovsuger", "sikkerhet"];
+const TABS = ["lys", "musikk", "timer", "idag", "stovsuger", "bilder", "sikkerhet"];
 let tab = TABS.includes(storage("tab")) ? storage("tab") : "lys";
 
 function showTab(name, focus = false) {
@@ -2212,6 +2212,16 @@ function setStatus(id, text, kind = "") {
 }
 
 const shortTime = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
+
+// ---------- Bilder (se bilder.js) ----------
+
+// I dashbordet starter lysbildevisningen bare av seg selv hvis det er valgt i fanen.
+Bilder.mount(document.getElementById("bd-root"), {
+  key: "d",
+  idleDefault: 0,
+  onSummary: (s) => setStatus("status-bilder", s.configured && s.count ? `${s.count.toLocaleString("nb-NO")} bilder` : "Ikke satt opp"),
+  info: () => (weather?.now ? `${Weather.temp(weather.now.temp)} ${weather.now.text.toLowerCase()}` : ""),
+});
 
 // ---------- Støvsuger (se stovsuger.js) ----------
 
@@ -2513,7 +2523,10 @@ function connect() {
     }
     addEvents(events, true);
     scheduleRender();
-    if (rang) requestAnimationFrame(() => renderBell(true));
+    if (rang) {
+      Bilder.stop();
+      requestAnimationFrame(() => renderBell(true));
+    }
   });
 }
 
@@ -2664,6 +2677,7 @@ function setSeconds(s) {
 
 function renderTimerRing() {
   const ringing = timers.find((t) => t.ringing);
+  Bilder.setBlocked(Boolean(ringing));
   const el = $id("timer-ring");
   el.hidden = !ringing;
   if (!ringing) {

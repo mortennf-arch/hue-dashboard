@@ -113,7 +113,7 @@ function setFill(input) {
 
 // ---------- Faner ----------
 
-const TABS = ["musikk", "lys", "timer", "idag", "stovsuger", "sikkerhet"];
+const TABS = ["musikk", "lys", "timer", "idag", "stovsuger", "bilder", "sikkerhet"];
 let tab = TABS.includes(storage("kTab")) ? storage("kTab") : "musikk";
 
 const visibleTabs = () => TABS.filter((t) => !$(`tab-${t}`).hidden);
@@ -1061,6 +1061,7 @@ function chime() {
 
 let ringTimer = null;
 function showRing(time) {
+  Bilder.stop();
   const el = $("k-ring");
   $("k-ring-detail").textContent = `kl. ${shortTime.format(new Date(time))} · se hvem det er i Hue-appen`;
   el.hidden = false;
@@ -1077,6 +1078,16 @@ $("k-ring-close").addEventListener("click", () => {
 // ---------- Samlet tegning og kontakt med serveren ----------
 
 let queued = false;
+// ---------- Bilder (se bilder.js) ----------
+
+// På nettbrettet starter lysbildevisningen av seg selv etter 5 minutter uten trykk, hvis ikke noe annet er valgt.
+Bilder.mount($("bd-root"), {
+  big: true,
+  key: "k",
+  idleDefault: 5,
+  info: () => (weather?.now ? `${Weather.temp(weather.now.temp)} ${weather.now.text.toLowerCase()}` : ""),
+});
+
 // ---------- Støvsuger (se stovsuger.js) ----------
 
 Stovsuger.mount($("rb-root"), { big: true });
@@ -1502,6 +1513,7 @@ function setSeconds(s) {
 
 function renderAlarm() {
   const ringing = timers.find((t) => t.ringing);
+  Bilder.setBlocked(Boolean(ringing));
   const el = $("k-alarm");
   if (!ringing) {
     el.hidden = true;
