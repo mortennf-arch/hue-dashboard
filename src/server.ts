@@ -9,6 +9,7 @@ import type { SpotifyClient } from "./spotify.js";
 import type { VerisureClient, VerisureState } from "./verisure.js";
 import type { WeatherService } from "./weather.js";
 import type { WasteCalendar } from "./waste.js";
+import type { TimerManager } from "./timers.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -95,8 +96,9 @@ export async function startWebServer(opts: {
   verisure?: VerisureClient;
   weather?: WeatherService;
   waste?: WasteCalendar;
+  timers?: TimerManager;
 }): Promise<WebServer> {
-  const { client, store, sonos, spotify, verisure, weather, waste } = opts;
+  const { client, store, sonos, spotify, verisure, weather, waste, timers } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
@@ -104,7 +106,7 @@ export async function startWebServer(opts: {
   let bridge = { connected: true, reason: "" };
   // De siste hendelsene, slik at et nyåpnet dashbord har noe i loggen med en gang.
   const recent: HueEvent[] = [];
-  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured), verisure: verisure?.state ?? null });
+  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured), verisure: verisure?.state ?? null, timers: timers?.list() ?? [] });
 
   const send = (res: http.ServerResponse, event: string, data: unknown) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -112,6 +114,7 @@ export async function startWebServer(opts: {
   const broadcast = (event: string, data: unknown) => {
     for (const res of clients) send(res, event, data);
   };
+  if (timers) timers.onChange = (list) => broadcast("timers", list);
 
   const json = (res: http.ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -362,6 +365,30 @@ export async function startWebServer(opts: {
     if (req.method === "GET" && url.pathname === "/api/waste") {
       if (!waste?.configured) return json(res, 200, { configured: false, available: false, pickups: [] });
       return json(res, 200, await waste.state());
+    }
+
+    if (url.pathname === "/api/timers" || url.pathname.startsWith("/api/timers/")) {
+      if (!timers) return json(res, 404, { error: "Timere er ikke slått på" });
+      if (req.method === "GET" && url.pathname === "/api/timers") return json(res, 200, timers.list());
+      if (req.method === "POST" && url.pathname === "/api/timers") {
+        try {
+          return json(res, 201, timers.add(await readBody(req)));
+        } catch (err) {
+          return json(res, 400, { error: (err as Error).message });
+        }
+      }
+      const one = url.pathname.match(/^\/api\/timers\/([0-9a-f-]{36})(\/extend)?$/);
+      if (one && req.method === "DELETE" && !one[2]) {
+        return timers.remove(one[1]) ? json(res, 200, { ok: true }) : json(res, 404, { error: "Fant ikke timeren" });
+      }
+      if (one && req.method === "POST" && one[2]) {
+        try {
+          return json(res, 200, timers.extend(one[1], Number((await readBody(req)).seconds)));
+        } catch (err) {
+          return json(res, 400, { error: (err as Error).message });
+        }
+      }
+      return json(res, 404, { error: "Ukjent adresse" });
     }
 
     if (req.method === "POST" && url.pathname === "/api/all-off") {

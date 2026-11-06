@@ -45,6 +45,8 @@ h2 { margin: 0; }
 
 /* ---------- Toppen: klokke, faner, status ---------- */
 .k-top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }
+/* Tre merker oppe til høyre får den plassen de trenger, og datoen til venstre kortes ned. */
+.k-top.crowded { grid-template-columns: minmax(150px, 1fr) auto minmax(0, max-content); }
 .k-time { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
 .k-clock { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .k-date { font-size: 18px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -274,6 +276,37 @@ input[type=range]::-moz-range-thumb { width: 30px; height: 30px; border-radius: 
 .k-ring span { font-size: 22px; color: var(--text-2); }
 .k-ring-close { margin-top: 18px; min-height: 72px; min-width: 240px; border-radius: 20px; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 24px; font-weight: 700; }
 @keyframes ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(14deg); } 40% { transform: rotate(-12deg); } 60% { transform: rotate(8deg); } 80% { transform: rotate(-4deg); } }
+/* ---------- Timer ---------- */
+.k-timer-chip { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.k-timer-chip svg { color: var(--accent); }
+.k-timer-chip.idle { padding: 10px 13px; }
+.k-timer-chip.ringing { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.k-timer-chip.ringing svg { color: var(--accent-ink); }
+.k-timer-dialog { gap: 12px; overflow-y: auto; }
+.k-timer-dialog .k-label { margin-top: 6px; }
+.k-timer-list { display: flex; flex-direction: column; gap: 10px; }
+.k-timer-list:empty { display: none; }
+.k-timer-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; padding: 12px 12px 12px 18px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border-2); }
+.k-timer-row.ringing { background: var(--accent-bg); border-color: var(--accent); }
+.k-timer-row div { display: flex; flex-direction: column; min-width: 0; }
+.k-timer-row strong { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k-timer-row span { font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k-timer-row .k-timer-left { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.k-timer-row button { min-height: 56px; padding: 0 18px; border-radius: 14px; border: 1px solid var(--border-2); background: var(--surface-2); font-size: 17px; font-weight: 600; }
+.k-timer-row button.stop { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.k-timer-rooms { display: flex; gap: 8px; flex-wrap: wrap; }
+.k-timer-rooms button { min-height: 52px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--border-2); background: var(--surface); font-size: 16px; font-weight: 600; }
+.k-timer-rooms button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.k-timer-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.k-timer-presets button { min-height: 72px; border-radius: 18px; border: 1px solid var(--border-2); background: var(--surface); font-size: 22px; font-weight: 700; }
+.k-timer-presets button:active, .k-timer-rooms button:active { background: var(--surface-2); }
+.k-timer-custom { display: flex; align-items: center; gap: 12px; font-size: 18px; color: var(--text-2); }
+.k-timer-custom input { width: 120px; min-height: 60px; font: inherit; font-size: 22px; color: var(--text); background: var(--surface); border: 2px solid var(--border-2); border-radius: 16px; padding: 0 14px; }
+.k-timer-custom button { min-height: 60px; padding: 0 26px; border-radius: 16px; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 18px; font-weight: 700; }
+.k-alarm svg { animation: none; }
+.k-alarm-actions { display: flex; gap: 16px; align-items: center; }
+.k-alarm-more { margin-top: 18px; min-height: 72px; min-width: 160px; border-radius: 20px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font-size: 24px; font-weight: 700; }
+
 @media (prefers-reduced-motion: reduce) { .k-ring svg, .k-rooms.nudge .k-room-list { animation: none; } }
 
 /* ---------- Mindre skjermer og stående nettbrett ---------- */

@@ -389,3 +389,26 @@ details.more > summary { margin-top: 0; font-size: 12px; }
 .artist-head { display: flex; align-items: center; gap: 16px; }
 .artist-head h3 { margin: 0 0 8px; font-size: 24px; }
 .back, .more-btn { align-self: flex-start; }
+
+/* ---------- Timer ---------- */
+.timer-btn { cursor: pointer; min-height: 36px; font-variant-numeric: tabular-nums; }
+.timer-btn svg { color: var(--accent); width: 16px; height: 16px; }
+.timer-btn:hover { border-color: var(--border-2); }
+.timer-btn.running { color: var(--text); font-weight: 600; }
+.timer-btn.ringing { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.timer-btn.ringing svg { color: var(--accent-ink); }
+.timer-ring .primary { min-width: 96px; }
+.timer-list { display: flex; flex-direction: column; gap: 8px; }
+.timer-list:empty { display: none; }
+.timer-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; background: var(--surface-2); border: 1px solid var(--border-2); border-radius: 12px; padding: 10px 10px 10px 14px; }
+.timer-row.ringing { background: var(--bell-bg); border-color: var(--bell-border); }
+.timer-row div { display: flex; flex-direction: column; min-width: 0; }
+.timer-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer-row span { font-size: 12px; color: var(--muted); }
+.timer-row .left { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.timer-row button { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--surface); }
+.timer-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.timer-presets button { min-height: 52px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--surface-2); font-size: 16px; font-weight: 600; }
+.timer-presets button:hover { border-color: var(--accent); }
+.timer-min { flex-direction: row; align-items: center; gap: 10px; }
+.timer-min input { width: 100px; }

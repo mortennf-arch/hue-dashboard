@@ -9,6 +9,7 @@ import { SpotifyClient } from "./spotify.js";
 import { VerisureClient } from "./verisure.js";
 import { WeatherService } from "./weather.js";
 import { WasteCalendar } from "./waste.js";
+import { TimerManager } from "./timers.js";
 
 const SKIP_KEYS = new Set(["id", "id_v1", "type", "owner", "service_id"]);
 
@@ -108,6 +109,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
     });
   }
   let verisure: VerisureClient | null = null;
+  let timers: TimerManager | undefined;
   if (opts.web) {
     let lastStatus = "";
     let listed = false;
@@ -125,7 +127,9 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
       }
     });
     if (v.configured) verisure = v;
-    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined, weather: new WeatherService(), waste: new WasteCalendar() });
+    timers = new TimerManager(client, store);
+    await timers.load();
+    web = await startWebServer({ port: opts.web.port, client, store, sonos: sonos ?? undefined, spotify: new SpotifyClient(), verisure: verisure ?? undefined, weather: new WeatherService(), waste: new WasteCalendar(), timers });
     console.log(`Dashbordet kjører på http://localhost:${opts.web.port} (og på maskinens IP-adresse).`);
     sonos?.start().catch((err) => console.error("Sonos:", err.message));
     verisure?.start().catch((err) => console.error("Verisure:", err.message));
@@ -173,6 +177,7 @@ export async function watch(cfg: BridgeConfig, opts: { web?: { port: number } } 
       sonos?.stop();
       verisure?.stop();
       web?.close();
+      timers?.close();
       client.close();
       resolve();
     };

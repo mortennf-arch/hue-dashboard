@@ -10,6 +10,7 @@ let spotifyOn = false;
 let online = false;
 let weather = null; // fra /api/weather
 let waste = null; // fra /api/waste
+let timers = []; // fra serveren, se timer.js
 
 // ---------- Hjelpere ----------
 
@@ -1085,6 +1086,7 @@ function render() {
     renderMusic();
     renderLights();
     renderBell();
+    renderTimerRooms();
   });
 }
 
@@ -1122,8 +1124,10 @@ function connect() {
     sonosAt = Date.now();
     spotifyOn = Boolean(snap.spotify);
     online = true;
+    setTimers(snap.timers ?? []);
     render();
   });
+  es.addEventListener("timers", (e) => setTimers(JSON.parse(e.data)));
   es.addEventListener("sonos", (e) => {
     sonos = JSON.parse(e.data);
     sonosAt = Date.now();
@@ -1264,11 +1268,14 @@ function syncChips() {
   const rang = bell.classList.contains("rang");
   chip.hidden = !soon;
   bell.hidden = Boolean(soon) && !rang;
+  const shown = [chip, bell, $("k-timer-chip")].filter((c) => !c.hidden).length;
+  document.querySelector(".k-top").classList.toggle("crowded", shown > 2);
   // Med to merker blir ringingen kortere: bare klokkeslettet.
   const ring = latestRing();
   if (rang && ring) $("k-bell-chip-text").textContent = soon ? `kl. ${shortTime.format(new Date(ring.time))}` : `Ringte på kl. ${shortTime.format(new Date(ring.time))}`;
   if (!soon) return;
-  const compact = rang;
+  // En timer som går, tar også plass, så da blir tømmingen kort.
+  const compact = rang || timers.length > 0;
   const when = soon.when === "i dag" ? "I dag" : "I morgen";
   chip.innerHTML = Waste.BIN_SVG;
   if (compact) {
@@ -1342,3 +1349,157 @@ setInterval(loadIdag, 10 * 60_000);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadIdag();
 });
+
+// ---------- Timer ----------
+// Timerne går på serveren. Her vises de, og her startes og stoppes de. Når en timer er ferdig, dekker
+// et varsel hele skjermen og piper til noen trykker Stopp. Serveren blinker lyset i rommet som ble valgt.
+
+let alarmShown = null; // id-en til timeren varselet gjelder
+let beepTimer = null;
+
+function setTimers(list) {
+  timers = Array.isArray(list) ? list : [];
+  renderTimers();
+}
+
+function renderTimerChip() {
+  const chip = $("k-timer-chip");
+  const ringing = timers.filter((t) => t.ringing);
+  const running = timers.filter((t) => !t.ringing);
+  chip.innerHTML = Timer.ICON;
+  chip.classList.toggle("ringing", ringing.length > 0);
+  chip.classList.toggle("idle", !timers.length);
+  if (ringing.length) {
+    chip.append(h("span", {}, "Ferdig!"));
+    chip.setAttribute("aria-label", "En timer er ferdig");
+  } else if (running.length) {
+    const next = running[0];
+    chip.append(h("span", {}, Timer.clock(Timer.left(next)) + (running.length > 1 ? ` +${running.length - 1}` : "")));
+    chip.setAttribute("aria-label", `${Timer.name(next)}: ${Timer.clock(Timer.left(next))} igjen. Åpne timere`);
+  } else {
+    chip.setAttribute("aria-label", "Start en timer");
+  }
+  // Timeren tar plass fra de andre merkene, så de tegnes på nytt når den starter eller stopper.
+  if (chip.dataset.busy !== String(timers.length > 0)) {
+    chip.dataset.busy = String(timers.length > 0);
+    syncChips();
+  }
+}
+
+function renderTimerList() {
+  const list = $("k-timer-list");
+  list.replaceChildren(
+    ...timers.map((t) =>
+      h(
+        "div",
+        { class: t.ringing ? "k-timer-row ringing" : "k-timer-row", "data-id": t.id },
+        h("div", {}, h("strong", {}, Timer.name(t)), h("span", {}, t.roomName ? `Blinker i ${t.roomName}` : "Uten blinking")),
+        h("span", { class: "k-timer-left" }, t.ringing ? "Ferdig" : Timer.clock(Timer.left(t))),
+        h("button", { type: "button", onclick: () => api("POST", `/api/timers/${t.id}/extend`, { seconds: 60 }) }, "+1 min"),
+        h("button", { type: "button", class: "stop", onclick: () => api("DELETE", `/api/timers/${t.id}`) }, t.ringing ? "Stopp" : "Avbryt"),
+      ),
+    ),
+  );
+}
+
+let timerRoomsKey = "";
+function renderTimerRooms() {
+  const list = Timer.rooms(byId);
+  const chosen = Timer.pickRoom(list, storage("kTimerRoom"));
+  const key = JSON.stringify([chosen, list.map((r) => [r.id, r.metadata?.name])]);
+  if (key === timerRoomsKey) return;
+  timerRoomsKey = key;
+  const pick = (id) => {
+    storage("kTimerRoom", id);
+    renderTimerRooms();
+  };
+  $("k-timer-rooms").replaceChildren(
+    h("button", { type: "button", "aria-pressed": String(chosen === ""), onclick: () => pick("") }, "Ingen"),
+    ...list.map((r) => h("button", { type: "button", "aria-pressed": String(chosen === r.id), onclick: () => pick(r.id) }, r.metadata?.name ?? "Rom")),
+  );
+}
+
+function renderAlarm() {
+  const ringing = timers.find((t) => t.ringing);
+  const el = $("k-alarm");
+  if (!ringing) {
+    el.hidden = true;
+    alarmShown = null;
+    clearInterval(beepTimer);
+    beepTimer = null;
+    return;
+  }
+  $("k-alarm-title").textContent = ringing.label ? `${ringing.label} er ferdig` : "Timeren er ferdig";
+  $("k-alarm-detail").textContent = [Timer.duration(ringing.durationMs), ringing.roomName ? `lyset blinker i ${ringing.roomName}` : ""].filter(Boolean).join(" · ");
+  if (alarmShown !== ringing.id) {
+    alarmShown = ringing.id;
+    el.hidden = false;
+    if ($("k-timer").open) $("k-timer").close();
+    $("k-alarm-stop").focus();
+  }
+  if (!beepTimer) {
+    Timer.beep(audio);
+    beepTimer = setInterval(() => Timer.beep(audio), 2500);
+  }
+}
+
+function renderTimers() {
+  renderTimerChip();
+  if ($("k-timer").open) renderTimerList();
+  renderAlarm();
+}
+
+async function startTimer(minutes) {
+  const list = Timer.rooms(byId);
+  const room = Timer.pickRoom(list, storage("kTimerRoom"));
+  const label = $("k-timer-name").value.trim();
+  const t = await api("POST", "/api/timers", { seconds: Math.round(minutes * 60), label, room: room || undefined });
+  if (!t) return;
+  $("k-timer-name").value = "";
+  $("k-timer").close();
+  toast(`${Timer.name(t)} startet${t.roomName ? `, lyset blinker i ${t.roomName}` : ""}`);
+}
+
+$("k-timer-presets").replaceChildren(...Timer.PRESETS.map((m) => h("button", { type: "button", onclick: () => startTimer(m) }, m === 60 ? "1 time" : `${m} min`)));
+$("k-timer-custom").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const m = Number($("k-timer-min").value);
+  if (m > 0) {
+    startTimer(m);
+    $("k-timer-min").value = "";
+  }
+});
+$("k-timer-chip").addEventListener("click", () => {
+  if (timers.some((t) => t.ringing)) {
+    alarmShown = null;
+    renderAlarm();
+    return;
+  }
+  renderTimerRooms();
+  renderTimerList();
+  $("k-timer").showModal();
+});
+$("k-timer-close").addEventListener("click", () => $("k-timer").close());
+$("k-timer").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.close();
+});
+$("k-alarm-stop").addEventListener("click", () => {
+  const t = timers.find((x) => x.id === alarmShown);
+  if (t) api("DELETE", `/api/timers/${t.id}`);
+});
+$("k-alarm-more").addEventListener("click", () => {
+  const t = timers.find((x) => x.id === alarmShown);
+  if (t) api("POST", `/api/timers/${t.id}/extend`, { seconds: 60 });
+});
+// Nedtellingen oppdateres hvert sekund mens en timer går.
+setInterval(() => {
+  if (!timers.length) return;
+  renderTimerChip();
+  if ($("k-timer").open) {
+    for (const row of document.querySelectorAll("#k-timer-list .k-timer-row:not(.ringing)")) {
+      const t = timers.find((x) => x.id === row.dataset.id);
+      if (t) row.querySelector(".k-timer-left").textContent = Timer.clock(Timer.left(t));
+    }
+  }
+}, 1000);
+renderTimerChip();
