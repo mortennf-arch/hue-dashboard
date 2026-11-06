@@ -1,0 +1,766 @@
+import crypto from "node:crypto";
+import { readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { dataDir } from "./config.js";
+import { LocalConnection, scanForVacuums, type Version } from "./roborock-protocol.js";
+
+/**
+ * Roborock-støvsugere i dashbordet.
+ *
+ * Roborock har ikke noe offisielt API. Første gang logger man inn med e-posten til Roborock-appen
+ * og en kode som kommer på e-post. Da henter serveren støvsugerne, rommene og en lokal nøkkel per
+ * støvsuger fra skyen deres. Alt dette lagres i roborock.json i datasettet. Etter det snakker serveren
+ * direkte med støvsugerne på hjemmenettet (se roborock-protocol.ts), og skyen brukes ikke igjen
+ * før noen trykker «Hent på nytt» i fanen.
+ *
+ * Fremgangsmåten er den samme som python-roborock (Home Assistant) bruker.
+ */
+
+// ROBOROCK_BASE_URL kan overstyres, for eksempel for å teste mot en falsk server.
+const TEST_URL = process.env.ROBOROCK_BASE_URL?.trim() || "";
+const BASE_URLS = TEST_URL ? [TEST_URL] : ["https://euiot.roborock.com", "https://usiot.roborock.com", "https://cniot.roborock.com", "https://ruiot.roborock.com"];
+const trusted = (u: URL) => Boolean(TEST_URL) || (u.protocol === "https:" && (u.hostname === "roborock.com" || u.hostname.endsWith(".roborock.com")));
+const storePath = path.join(dataDir, "roborock.json");
+const POLL_MS = 15_000;
+const POLL_ACTIVE_MS = 5_000;
+const SLOW_MS = 30 * 60_000;
+
+interface RRiot {
+  u: string;
+  s: string;
+  h: string;
+  k: string;
+  r: { a: string };
+}
+
+interface StoredDevice {
+  duid: string;
+  name: string;
+  localKey: string;
+  model: string;
+  productName: string;
+  ip: string | null;
+  /** Satt for hånd i fanen, og letes ikke etter på nytt. */
+  manualIp?: boolean;
+  version: Version | null;
+}
+
+interface Stored {
+  email: string;
+  baseUrl: string;
+  country: string | null;
+  countryCode: string | null;
+  clientId: string;
+  userData: { token: string; rriot: RRiot } | null;
+  rooms: { id: string; name: string }[];
+  devices: StoredDevice[];
+  fetched: string | null;
+}
+
+export interface VacuumState {
+  duid: string;
+  name: string;
+  model: string;
+  ip: string | null;
+  connected: boolean;
+  problem: string;
+  state: number | null;
+  stateText: string;
+  active: boolean;
+  docked: boolean;
+  battery: number | null;
+  error: string;
+  fan: number | null;
+  water: number | null;
+  cleanMinutes: number | null;
+  cleanArea: number | null;
+  rooms: { segment: number; name: string }[];
+  consumables: { key: string; name: string; percent: number; hoursLeft: number }[];
+  totals: { hours: number; area: number; count: number } | null;
+  updated: string | null;
+}
+
+export interface RoborockState {
+  status: "login" | "code_sent" | "loading" | "ok" | "error";
+  reason: string;
+  email: string;
+  vacuums: VacuumState[];
+}
+
+// Tilstandene fra get_status, på norsk. Samme tall som i python-roborock.
+const STATES: Record<number, string> = {
+  1: "Starter",
+  2: "Ikke på laderen",
+  3: "Venter",
+  4: "Fjernstyres",
+  5: "Støvsuger",
+  6: "Kjører hjem",
+  7: "Manuell",
+  8: "Lader",
+  9: "Problem med ladingen",
+  10: "Pause",
+  11: "Punktrengjøring",
+  12: "Feil",
+  13: "Slår seg av",
+  14: "Oppdaterer",
+  15: "Kjører inn i laderen",
+  16: "Kjører til punkt",
+  17: "Støvsuger sone",
+  18: "Støvsuger rom",
+  22: "Tømmer beholderen",
+  23: "Vasker moppen",
+  25: "Vasker moppen",
+  26: "Kjører for å vaske moppen",
+  29: "Lager kart",
+  100: "Ferdig ladet",
+};
+const ACTIVE = new Set([1, 4, 5, 6, 7, 11, 15, 16, 17, 18, 26, 29]);
+const DOCKED = new Set([8, 9, 22, 23, 25, 100]);
+
+const ERRORS: Record<number, string> = {
+  1: "Lasertårnet er blokkert",
+  2: "Støtfangeren sitter fast",
+  3: "Hjulene henger i luften",
+  4: "Kantsensoren er skitten",
+  5: "Hovedbørsten sitter fast",
+  6: "Sidebørsten sitter fast",
+  7: "Hjulene sitter fast",
+  8: "Står fast",
+  9: "Støvbeholderen mangler",
+  10: "Filteret er vått eller tett",
+  11: "Sterkt magnetfelt",
+  12: "Lavt batteri",
+  13: "Ladefeil",
+  14: "Batterifeil",
+  15: "Veggsensoren er skitten",
+  16: "Står skjevt",
+  17: "Feil med sidebørsten",
+  18: "Feil med viften",
+  19: "Laderen har ikke strøm",
+  20: "Den optiske sensoren er skitten",
+  22: "Finner ikke laderen",
+  23: "Kom seg ikke hjem til laderen",
+  24: "Kom til en forbudt sone",
+  25: "Kamerafeil",
+  26: "Feil med veggsensoren",
+  27: "Moppeløfteren sitter fast",
+  29: "Filteret er tett",
+  30: "Kom til en usynlig vegg",
+  31: "Kommer seg ikke over teppet",
+  32: "Intern feil",
+  34: "Tømmestasjonen må rengjøres",
+  38: "Sjekk rentvannstanken",
+  39: "Sjekk skittenvannstanken",
+  41: "Rentvannstanken er tom",
+  53: "Vaskebrettet er fullt av vann",
+  55: "Sjekk vaskebrettet",
+};
+
+const PARTS = [
+  { key: "main_brush_work_time", name: "Hovedbørste", life: 300 },
+  { key: "side_brush_work_time", name: "Sidebørste", life: 200 },
+  { key: "filter_work_time", name: "Filter", life: 150 },
+  { key: "sensor_dirty_time", name: "Sensorer", life: 30 },
+];
+
+/** Gyldige verdier for sugestyrke og vannmengde. 105 = av (bare mopp) finnes bare på noen modeller. */
+export const FAN_MODES = [101, 102, 103, 104, 105, 106, 108, 110];
+export const WATER_MODES = [200, 201, 202, 203, 204, 207];
+
+class CloudError extends Error {
+  constructor(
+    message: string,
+    readonly code?: number,
+  ) {
+    super(message);
+  }
+}
+
+function cloudMessage(r: { code?: number; msg?: string } | null, fallback: string): CloudError {
+  const code = r?.code;
+  const known: Record<number, string> = {
+    2008: "Fant ingen Roborock-konto med den e-posten.",
+    3039: "Fant ingen Roborock-konto med den e-posten.",
+    2018: "Koden stemmer ikke, eller den er for gammel. Be om en ny.",
+    9002: "For mange koder på kort tid. Vent noen minutter og prøv igjen.",
+    3009: "Godta brukervilkårene i Roborock-appen først, og prøv igjen.",
+    3006: "Godta brukervilkårene i Roborock-appen på nytt. Er dette en Mi Home-konto, virker den ikke her.",
+    2003: "E-postadressen ser ikke riktig ut.",
+    2010: "Innloggingen har gått ut. Logg inn på nytt.",
+  };
+  return new CloudError((code !== undefined && known[code]) || `${r?.msg || fallback}${code !== undefined ? ` (kode ${code})` : ""}`, code);
+}
+
+function hawk(rriot: RRiot, urlPath: string): string {
+  const ts = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomBytes(6).toString("base64url");
+  const md5 = (s: string) => crypto.createHash("md5").update(s).digest("hex");
+  const pre = [rriot.u, rriot.s, nonce, String(ts), md5(urlPath), "", ""].join(":");
+  const mac = crypto.createHmac("sha256", rriot.h).update(pre).digest("base64");
+  return `Hawk id="${rriot.u}",s="${rriot.s}",ts="${ts}",nonce="${nonce}",mac="${mac}"`;
+}
+
+class Cloud {
+  constructor(private readonly s: Stored) {}
+
+  private clientHeader(): string {
+    return crypto.createHash("md5").update(this.s.email).update(this.s.clientId).digest("base64");
+  }
+
+  async call(base: string, method: string, p: string, opts: { query?: Record<string, string>; form?: Record<string, string>; headers?: Record<string, string> } = {}): Promise<any> {
+    const url = new URL(base.replace(/\/+$/, "") + p);
+    for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, v);
+    const headers: Record<string, string> = { header_clientid: this.clientHeader(), Accept: "application/json", ...(opts.headers ?? {}) };
+    let body: string | undefined;
+    if (opts.form) {
+      body = new URLSearchParams(opts.form).toString();
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+    }
+    let res: Response;
+    try {
+      res = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(20_000) });
+    } catch (err) {
+      throw new CloudError(`Får ikke kontakt med Roborock (${url.host}): ${(err as Error).message}`);
+    }
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      throw new CloudError(`Roborock svarte med noe uventet (HTTP ${res.status})`);
+    }
+  }
+
+  /** Finner riktig region (Europa, USA osv.) for e-posten. */
+  async region(): Promise<void> {
+    let last: CloudError | null = null;
+    for (const base of BASE_URLS) {
+      const r = await this.call(base, "POST", "/api/v1/getUrlByEmail", { query: { email: this.s.email, needtwostepauth: "false" } }).catch((e) => {
+        last = e;
+        return null;
+      });
+      if (!r) continue;
+      if (r.code !== 200 || !r.data?.url) {
+        last = cloudMessage(r, "Fant ikke kontoen");
+        if (r.code === 2003) break;
+        continue;
+      }
+      if (r.data.country == null && r.data.countrycode == null) continue;
+      const url = new URL(r.data.url);
+      if (!trusted(url)) throw new CloudError(`Uventet adresse fra Roborock: ${url.host}`);
+      this.s.baseUrl = url.origin;
+      this.s.country = r.data.country ?? null;
+      this.s.countryCode = r.data.countrycode != null ? String(r.data.countrycode) : null;
+      return;
+    }
+    throw last ?? new CloudError("Fant ingen Roborock-konto med den e-posten.");
+  }
+
+  async sendCode(): Promise<void> {
+    await this.region();
+    if (this.s.country && this.s.countryCode) {
+      const r = await this.call(this.s.baseUrl, "POST", "/api/v4/email/code/send", { form: { email: this.s.email, type: "login", platform: "" }, headers: { header_clientlang: "en" } });
+      if (r.code === 200) return;
+      if (r.code !== 3030) throw cloudMessage(r, "Klarte ikke å sende koden");
+    }
+    const r = await this.call(this.s.baseUrl, "POST", "/api/v1/sendEmailCode", { query: { username: this.s.email, type: "auth" } });
+    if (r.code !== 200) throw cloudMessage(r, "Klarte ikke å sende koden");
+  }
+
+  async login(code: string): Promise<void> {
+    if (!this.s.baseUrl) await this.region();
+    let r: any = null;
+    if (this.s.country && this.s.countryCode) {
+      const ks = Array.from(crypto.randomBytes(16), (b) => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[b % 62]).join("");
+      const signed = await this.call(this.s.baseUrl, "POST", "/api/v3/key/sign", { query: { s: ks } });
+      if (signed.code !== 200 || !signed.data?.k) throw cloudMessage(signed, "Klarte ikke å logge inn");
+      const agreement = await this.call(this.s.baseUrl, "GET", "/api/v3/app/agreement/latest", { query: { country: this.s.country }, headers: { header_clientlang: "en" } }).catch(() => null);
+      const major = Number.isInteger(agreement?.data?.majorVersion) ? agreement.data.majorVersion : 14;
+      const minor = Number.isInteger(agreement?.data?.minorVersion) ? agreement.data.minorVersion : 0;
+      r = await this.call(this.s.baseUrl, "POST", "/api/v4/auth/email/login/code", {
+        form: { country: this.s.country, countryCode: this.s.countryCode, email: this.s.email, code, majorVersion: String(major), minorVersion: String(minor) },
+        headers: { header_clientlang: "en", header_appversion: "4.54.02", header_phonesystem: "iOS", header_phonemodel: "iPhone16,1", "x-mercy-ks": ks, "x-mercy-k": signed.data.k },
+      });
+      if (r.code !== 200 && [2018, 3006, 3009, 3039].includes(r.code)) throw cloudMessage(r, "Klarte ikke å logge inn");
+    }
+    if (!r || r.code !== 200) r = await this.call(this.s.baseUrl, "POST", "/api/v1/loginWithCode", { query: { username: this.s.email, verifycode: code, verifycodetype: "AUTH_EMAIL_CODE" } });
+    if (r.code !== 200 || !r.data?.rriot?.r?.a) throw cloudMessage(r, "Klarte ikke å logge inn");
+    this.s.userData = { token: r.data.token, rriot: r.data.rriot };
+  }
+
+  /** Henter støvsugerne (med lokal nøkkel) og rommene. Roborock tillater bare noen få slike kall i timen. */
+  async home(): Promise<void> {
+    const ud = this.s.userData;
+    if (!ud) throw new CloudError("Ikke logget inn");
+    const detail = await this.call(this.s.baseUrl, "GET", "/api/v1/getHomeDetail", { headers: { Authorization: ud.token } });
+    if (detail.code !== 200 || detail.data?.rrHomeId === undefined) throw cloudMessage(detail, "Fant ikke hjemmet i Roborock-kontoen");
+    const api = new URL(ud.rriot.r.a);
+    if (!trusted(api)) throw new CloudError(`Uventet adresse fra Roborock: ${api.host}`);
+    let result: any = null;
+    for (const prefix of ["/v3", "/v2", ""]) {
+      const p = `${prefix}/user/homes/${detail.data.rrHomeId}`;
+      const r = await this.call(api.origin, "GET", p, { headers: { Authorization: hawk(ud.rriot, p) } });
+      if (r?.success && r.result) {
+        result = r.result;
+        break;
+      }
+    }
+    if (!result) throw new CloudError("Roborock ga ikke ut listen over støvsugere");
+    const products = new Map<string, any>((result.products ?? []).map((p: any) => [String(p.id), p]));
+    const old = new Map(this.s.devices.map((d) => [d.duid, d]));
+    this.s.devices = [...(result.devices ?? []), ...(result.receivedDevices ?? [])]
+      .filter((d: any) => d.duid && d.localKey)
+      .map((d: any) => {
+        const prod = products.get(String(d.productId)) ?? {};
+        const prev = old.get(d.duid);
+        const pv = d.pv === "L01" ? "L01" : d.pv === "1.0" ? "1.0" : null;
+        return {
+          duid: d.duid,
+          name: d.name || prod.name || d.duid,
+          localKey: d.localKey,
+          model: prod.model || "",
+          productName: prod.name || "",
+          ip: prev && (prev.localKey === d.localKey || prev.manualIp) ? prev.ip : null,
+          manualIp: prev?.manualIp,
+          version: prev?.version ?? pv,
+        };
+      });
+    this.s.rooms = (result.rooms ?? []).map((r: any) => ({ id: String(r.id), name: String(r.name ?? "") }));
+    this.s.fetched = new Date().toISOString();
+  }
+}
+
+/** Én støvsuger: holder forbindelsen oppe og spør om status jevnlig. */
+class Vacuum {
+  conn: LocalConnection | null = null;
+  state: VacuumState;
+  private timer: NodeJS.Timeout | null = null;
+  private slowAt = 0;
+  private mapping: [number, string][] = [];
+  private failures = 0;
+  private connecting = false;
+  stopped = false;
+
+  constructor(
+    readonly dev: StoredDevice,
+    private readonly roomNames: () => Map<string, string>,
+    private readonly changed: () => void,
+    private readonly lost: (v: Vacuum) => void,
+  ) {
+    this.state = {
+      duid: dev.duid,
+      name: dev.name,
+      model: dev.productName || dev.model,
+      ip: dev.ip,
+      connected: false,
+      problem: dev.ip ? "Kobler til …" : "Leter etter støvsugeren på nettet …",
+      state: null,
+      stateText: "",
+      active: false,
+      docked: false,
+      battery: null,
+      error: "",
+      fan: null,
+      water: null,
+      cleanMinutes: null,
+      cleanArea: null,
+      rooms: [],
+      consumables: [],
+      totals: null,
+      updated: null,
+    };
+  }
+
+  set(patch: Partial<VacuumState>): void {
+    Object.assign(this.state, patch);
+    this.changed();
+  }
+
+  start(): void {
+    this.schedule(0);
+  }
+
+  private schedule(ms: number): void {
+    if (this.stopped) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.tick().catch(() => {}), ms);
+    this.timer.unref?.();
+  }
+
+  private async ensureConnected(): Promise<LocalConnection> {
+    if (this.conn?.ready) return this.conn;
+    if (!this.dev.ip) throw new Error("Vet ikke IP-adressen ennå");
+    if (this.connecting) throw new Error("Kobler til …");
+    this.connecting = true;
+    try {
+      this.conn?.close();
+      const conn = new LocalConnection(this.dev.ip, this.dev.localKey, (dps) => this.onPush(dps), () => {
+        this.set({ connected: false, problem: "Mistet forbindelsen, kobler til igjen …" });
+        this.schedule(2000);
+      });
+      this.dev.version = await conn.open(this.dev.version);
+      this.conn = conn;
+      this.slowAt = 0;
+      return conn;
+    } finally {
+      this.connecting = false;
+    }
+  }
+
+  private onPush(dps: Record<string, unknown>): void {
+    const n = (k: string) => (dps[k] !== undefined ? Number(dps[k]) : undefined);
+    const raw: Record<string, number> = {};
+    if (n("121") !== undefined) raw.state = n("121")!;
+    if (n("122") !== undefined) raw.battery = n("122")!;
+    if (n("120") !== undefined) raw.error_code = n("120")!;
+    if (n("123") !== undefined) raw.fan_power = n("123")!;
+    if (n("124") !== undefined) raw.water_box_mode = n("124")!;
+    if (Object.keys(raw).length) this.applyStatus(raw);
+  }
+
+  private applyStatus(s: Record<string, any>): void {
+    const patch: Partial<VacuumState> = { updated: new Date().toISOString() };
+    if (s.state !== undefined) {
+      const st = Number(s.state);
+      patch.state = st;
+      patch.stateText = STATES[st] ?? `Tilstand ${st}`;
+      patch.active = ACTIVE.has(st);
+      patch.docked = DOCKED.has(st);
+    }
+    if (s.battery !== undefined) patch.battery = Number(s.battery);
+    if (s.error_code !== undefined) patch.error = Number(s.error_code) ? (ERRORS[Number(s.error_code)] ?? `Feilkode ${s.error_code}`) : "";
+    if (s.fan_power !== undefined) patch.fan = Number(s.fan_power);
+    if (s.water_box_mode !== undefined) patch.water = Number(s.water_box_mode);
+    if (s.clean_time !== undefined) patch.cleanMinutes = Math.round(Number(s.clean_time) / 60);
+    if (s.clean_area !== undefined) patch.cleanArea = Math.round(Number(s.clean_area) / 100_000) / 10;
+    this.set(patch);
+  }
+
+  private async tick(): Promise<void> {
+    if (this.stopped) return;
+    try {
+      const conn = await this.ensureConnected();
+      const status = await conn.request<any[]>("get_status");
+      const row = Array.isArray(status) ? status[0] : status;
+      if (row && typeof row === "object") this.applyStatus(row);
+      this.failures = 0;
+      if (!this.state.connected || this.state.problem) this.set({ connected: true, problem: "" });
+      if (Date.now() >= this.slowAt) {
+        this.slowAt = Date.now() + SLOW_MS;
+        await this.refreshSlow(conn).catch(() => {});
+      }
+    } catch (err) {
+      this.failures++;
+      const msg = (err as Error).message;
+      this.set({ connected: false, problem: this.dev.ip ? `Får ikke kontakt med ${this.dev.ip}: ${msg}` : "Fant ikke støvsugeren på nettet." });
+      this.conn?.close();
+      this.conn = null;
+      // Etter noen bomskudd kan adressen ha endret seg. Da letes det på nytt.
+      if (this.failures === 3 && !this.dev.manualIp) this.lost(this);
+      this.schedule(Math.min(60_000 * Math.max(1, this.failures - 2), 5 * 60_000));
+      return;
+    }
+    this.schedule(this.state.active ? POLL_ACTIVE_MS : POLL_MS);
+  }
+
+  private async refreshSlow(conn: LocalConnection): Promise<void> {
+    const mapping = await conn.request<any[]>("get_room_mapping").catch(() => null);
+    if (Array.isArray(mapping)) this.mapping = mapping.filter((m) => Array.isArray(m)).map((m) => [Number(m[0]), String(m[1])]);
+    this.updateRooms();
+    const cons = await conn.request<any>("get_consumable").catch(() => null);
+    const c = Array.isArray(cons) ? cons[0] : cons;
+    if (c && typeof c === "object") {
+      this.state.consumables = PARTS.filter((p) => Number.isFinite(Number(c[p.key]))).map((p) => {
+        const left = Math.max(0, p.life * 3600 - Number(c[p.key]));
+        return { key: p.key, name: p.name, percent: Math.round((left / (p.life * 3600)) * 100), hoursLeft: Math.round(left / 3600) };
+      });
+    }
+    const sum = await conn.request<any>("get_clean_summary").catch(() => null);
+    if (sum) {
+      const [t, a, n] = Array.isArray(sum) ? sum : [sum.clean_time, sum.clean_area, sum.clean_count];
+      if (Number.isFinite(Number(t))) this.state.totals = { hours: Math.round(Number(t) / 3600), area: Math.round(Number(a) / 1_000_000), count: Number(n) || 0 };
+    }
+    this.changed();
+  }
+
+  updateRooms(): void {
+    const names = this.roomNames();
+    this.state.rooms = this.mapping.map(([segment, id]) => ({ segment, name: names.get(id) || `Rom ${segment}` })).sort((a, b) => a.name.localeCompare(b.name, "nb"));
+    this.changed();
+  }
+
+  setIp(ip: string | null, manual = false): void {
+    this.dev.ip = ip;
+    this.dev.manualIp = manual || undefined;
+    this.failures = 0;
+    this.conn?.close();
+    this.conn = null;
+    this.set({ ip, problem: ip ? "Kobler til …" : "Fant ikke støvsugeren på nettet." });
+    if (ip) this.schedule(0);
+  }
+
+  async command(method: string, params: unknown = []): Promise<unknown> {
+    const conn = await this.ensureConnected();
+    const result = await conn.request(method, params);
+    // Hent status litt etterpå, så knappene viser det nye med en gang.
+    this.schedule(1200);
+    return result;
+  }
+
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.conn?.close();
+  }
+}
+
+export class RoborockManager {
+  private s: Stored;
+  private vacuums = new Map<string, Vacuum>();
+  private status: RoborockState["status"] = "login";
+  private reason = "";
+  private scanning = false;
+  private scanAgainAt = 0;
+  private saveTimer: NodeJS.Timeout | null = null;
+
+  constructor(
+    private readonly onChange: (state: RoborockState) => void,
+    private readonly bridgeIp: string = "",
+  ) {
+    this.s = { email: process.env.ROBOROCK_EMAIL ?? "", baseUrl: "", country: null, countryCode: null, clientId: crypto.randomBytes(16).toString("base64url"), userData: null, rooms: [], devices: [], fetched: null };
+  }
+
+  get state(): RoborockState {
+    return { status: this.status, reason: this.reason, email: this.s.email, vacuums: [...this.vacuums.values()].map((v) => v.state) };
+  }
+
+  private emit(): void {
+    this.onChange(this.state);
+  }
+
+  private set(status: RoborockState["status"], reason = ""): void {
+    this.status = status;
+    this.reason = reason;
+    this.emit();
+  }
+
+  async start(): Promise<void> {
+    try {
+      const saved = JSON.parse(await readFile(storePath, "utf8")) as Partial<Stored>;
+      this.s = { ...this.s, ...saved, email: saved.email || this.s.email };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.error("Roborock: klarte ikke å lese roborock.json:", (err as Error).message);
+    }
+    if (this.s.devices.length) {
+      this.set("ok");
+      this.startVacuums();
+    } else if (this.s.userData) {
+      await this.fetchHome();
+    } else this.set("login");
+  }
+
+  private async save(): Promise<void> {
+    const tmp = `${storePath}.tmp`;
+    await writeFile(tmp, JSON.stringify(this.s, null, 2) + "\n", { mode: 0o600 });
+    await rename(tmp, storePath);
+  }
+
+  private saveSoon(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.save().catch((e) => console.error("Roborock: klarte ikke å lagre:", e.message));
+    }, 2000);
+  }
+
+  async sendCode(email: string): Promise<void> {
+    if (this.s.email !== email) {
+      this.s = { ...this.s, email, baseUrl: "", country: null, countryCode: null, userData: null };
+    }
+    try {
+      await new Cloud(this.s).sendCode();
+      this.set("code_sent", `Koden er sendt til ${email}.`);
+    } catch (err) {
+      this.set("login", (err as Error).message);
+      throw err;
+    }
+  }
+
+  async login(code: string): Promise<void> {
+    try {
+      await new Cloud(this.s).login(code);
+    } catch (err) {
+      this.set("code_sent", (err as Error).message);
+      throw err;
+    }
+    await this.save();
+    await this.fetchHome();
+  }
+
+  /** Henter støvsugere, nøkler og rom fra skyen på nytt, og leter etter dem på nettet. */
+  async fetchHome(): Promise<void> {
+    this.set("loading", "Henter støvsugerne fra Roborock-kontoen …");
+    try {
+      await new Cloud(this.s).home();
+    } catch (err) {
+      const e = err as CloudError;
+      if (e.code === 2010) {
+        this.s.userData = null;
+        this.set("login", e.message);
+      } else this.set(this.s.devices.length ? "ok" : "error", e.message);
+      await this.save().catch(() => {});
+      if (this.s.devices.length) this.startVacuums();
+      return;
+    }
+    await this.save();
+    if (!this.s.devices.length) return this.set("error", "Fant ingen støvsugere i Roborock-kontoen.");
+    this.set("ok");
+    this.startVacuums(true);
+    console.log(`Roborock: ${this.s.devices.map((d) => `${d.name} (${d.productName || d.model})`).join(", ")}`);
+  }
+
+  private startVacuums(restart = false): void {
+    if (restart) {
+      for (const v of this.vacuums.values()) v.stop();
+      this.vacuums.clear();
+    }
+    const names = () => new Map(this.s.rooms.map((r) => [r.id, r.name]));
+    for (const dev of this.s.devices) {
+      if (this.vacuums.has(dev.duid)) continue;
+      const v = new Vacuum(dev, names, () => {
+        this.emit();
+        this.saveSoon();
+      }, () => this.scan(true));
+      this.vacuums.set(dev.duid, v);
+      if (dev.ip) v.start();
+    }
+    if (this.s.devices.some((d) => !d.ip)) this.scan();
+  }
+
+  /** Adressene som letes gjennom: samme /24 som Hue-broen, og resten av en /22 for TP-Link Deco (192.168.68–71). */
+  private candidates(): string[] {
+    const custom = process.env.ROBOROCK_SUBNET?.trim();
+    const base = custom || this.bridgeIp.split(".").slice(0, 3).join(".");
+    const m = base.match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (!m) return [];
+    const third = Number(m[3]);
+    const thirds = [third];
+    if (!custom) {
+      const start = third - (third % 4);
+      for (let t = start; t < start + 4; t++) if (t !== third) thirds.push(t);
+    }
+    return thirds.flatMap((t) => Array.from({ length: 254 }, (_, i) => `${m[1]}.${m[2]}.${t}.${i + 1}`));
+  }
+
+  private async scan(force = false): Promise<void> {
+    if (this.scanning) return;
+    if (!force && Date.now() < this.scanAgainAt) return;
+    const missing = () => [...this.vacuums.values()].filter((v) => !v.conn?.ready && !v.dev.manualIp);
+    if (!missing().length) return;
+    this.scanning = true;
+    this.scanAgainAt = Date.now() + 10 * 60_000;
+    try {
+      const hosts = await scanForVacuums(this.candidates());
+      const known = new Set([...this.vacuums.values()].filter((v) => v.conn?.ready).map((v) => v.dev.ip));
+      const placed = new Set<Vacuum>();
+      for (const host of hosts.filter((h) => !known.has(h))) {
+        for (const v of missing().filter((x) => !placed.has(x))) {
+          // Den lokale nøkkelen avgjør hvem som svarer: bare riktig støvsuger forstår meldingen.
+          const probe = new LocalConnection(host, v.dev.localKey);
+          try {
+            const version = await probe.open(v.dev.version, 3000);
+            await probe.request("get_status", [], 3000);
+            probe.close();
+            v.dev.version = version;
+            console.log(`Roborock: fant ${v.dev.name} på ${host}`);
+            v.setIp(host);
+            placed.add(v);
+            break;
+          } catch {
+            probe.close();
+          }
+        }
+      }
+      for (const v of missing()) if (!placed.has(v) && (!v.dev.ip || !hosts.includes(v.dev.ip))) v.set({ problem: hosts.length ? "Fant ikke støvsugeren på nettet. Skriv inn IP-adressen under." : "Fant ingen Roborock-støvsugere på nettet. Skriv inn IP-adressen under." });
+    } finally {
+      this.scanning = false;
+      this.saveSoon();
+    }
+  }
+
+  async refresh(): Promise<void> {
+    if (!this.s.userData) return this.set("login", "Logg inn først.");
+    await this.fetchHome();
+    await this.scan(true);
+  }
+
+  async logout(): Promise<void> {
+    for (const v of this.vacuums.values()) v.stop();
+    this.vacuums.clear();
+    this.s = { ...this.s, userData: null, devices: [], rooms: [], fetched: null };
+    await this.save();
+    this.set("login");
+  }
+
+  setIp(duid: string, ip: string): void {
+    const v = this.vacuums.get(duid);
+    if (!v) throw new Error("Fant ikke støvsugeren");
+    if (ip) v.setIp(ip, true);
+    else {
+      v.setIp(null);
+      this.scan(true);
+    }
+    this.saveSoon();
+  }
+
+  async command(duid: string, body: Record<string, unknown>): Promise<void> {
+    const v = this.vacuums.get(duid);
+    if (!v) throw new Error("Fant ikke støvsugeren");
+    const action = String(body.action ?? "");
+    switch (action) {
+      case "start":
+        // Står den på pause, fortsetter den med det den holdt på med. Ellers tar den hele huset.
+        await v.command("app_start");
+        return;
+      case "pause":
+        await v.command("app_pause");
+        return;
+      case "stop":
+        await v.command("app_stop");
+        return;
+      case "dock":
+        await v.command("app_charge");
+        return;
+      case "find":
+        await v.command("find_me");
+        return;
+      case "rooms": {
+        const segs = Array.isArray(body.segments) ? body.segments.map(Number).filter((n) => Number.isInteger(n) && n >= 0) : [];
+        if (!segs.length) throw new Error("Velg minst ett rom");
+        const repeat = Math.min(3, Math.max(1, Math.round(Number(body.repeat) || 1)));
+        await v.command("app_segment_clean", [{ segments: segs, repeat }]);
+        return;
+      }
+      case "fan": {
+        const value = Number(body.value);
+        if (!FAN_MODES.includes(value)) throw new Error("Ugyldig sugestyrke");
+        await v.command("set_custom_mode", [value]);
+        v.set({ fan: value });
+        return;
+      }
+      case "water": {
+        const value = Number(body.value);
+        if (!WATER_MODES.includes(value)) throw new Error("Ugyldig vannmengde");
+        await v.command("set_water_box_custom_mode", [value]);
+        v.set({ water: value });
+        return;
+      }
+      default:
+        throw new Error("Ukjent kommando");
+    }
+  }
+
+  stop(): void {
+    for (const v of this.vacuums.values()) v.stop();
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+  }
+}

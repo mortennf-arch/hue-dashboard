@@ -162,13 +162,31 @@ Fanen «I dag» kan også vise når søpla hentes, og hvilke dunker det gjelder.
 
 Kalenderen hentes to ganger i døgnet og lagres i `tommekalender.json` i datasettet. Loggen viser for eksempel `Tømmekalender: 9 tømmedager, neste 2026-11-06`. Hentes det søppel i dag eller i morgen, står det også øverst på kjøkkennettbrettet og på fanen i dashbordet.
 
+## Roborock-støvsugere (valgfritt)
+
+Fanen **Støvsuger** styrer Roborock-støvsugerne: start hele huset eller utvalgte rom, pause, send hjem til laderen og «Finn» (den piper). Den viser også status, batteri, feil, sugestyrke, vann til moppen, slitedeler og statistikk. Fanen finnes både i dashbordet og på kjøkkennettbrettet.
+
+Du trenger ikke endre noe i TrueNAS:
+
+1. Åpne fanen **Støvsuger** og skriv e-posten du bruker i Roborock-appen. Trykk **Send kode**.
+2. Skriv inn koden du får på e-post, og trykk **Logg inn**.
+3. Dashbordet henter støvsugerne, rommene og en lokal nøkkel for hver støvsuger fra Roborock, og leter etter dem på hjemmenettet. Etter det snakker det direkte med støvsugerne, uten å gå via Roborocks sky. Alt lagres i `roborock.json` i datasettet.
+
+Roborock har ikke noe offisielt API. Dette gjør det samme som Home Assistant, og kan slutte å virke hvis Roborock endrer noe.
+
+- **Rommene** heter det samme som i Roborock-appen. Har du endret navn eller kart, trykk «Hent støvsugere og rom på nytt» nederst i fanen.
+- **Finner den ikke støvsugeren?** Skriv inn IP-adressen i fanen. Den står i Roborock-appen under støvsugeren (⋯ > Produktinfo) eller i ruteren. Lag gjerne en DHCP-reservasjon, slik du gjorde for Hue-broen. Dashbordet leter i samme nett som Hue-broen. Ligger støvsugerne et annet sted, kan du sette `ROBOROCK_SUBNET: "192.168.1"`.
+- **Tar du støvsugeren ut av appen og legger den inn igjen,** får den en ny nøkkel. Trykk da «Hent støvsugere og rom på nytt».
+- Vil du skru av fanen helt, sett `ROBOROCK: "off"`.
+
 ## Kjøkkennettbrett (valgfritt)
 
-En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har fanene Musikk, Lys, I dag og Sikkerhet.
+En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokken`. Den har fanene Musikk, Lys, Timer, I dag, Støvsuger og Sikkerhet.
 
 - **Musikk:** rommene til venstre kommer rett fra Sonos. Rom som er merket med gult, spiller sammen. Trykk på et rom for å legge det til eller ta det ut. Med flere rom valgt får hvert rom sin egen volumknapp, pluss «Alle rom».
 - **Lys:** av/på, lysstyrke og scener for hvert Hue-rom.
 - **I dag:** været fra yr nå, de neste timene og dagene, og når søpla hentes. Temperaturen står på fanen, og «Restavfall i morgen» dukker opp øverst til høyre dagen før. Krever `HJEM_ADRESSE` og `TOMMEKALENDER_URL`, se over.
+- **Støvsuger:** de samme knappene som i dashbordet, bare større. Se Roborock-avsnittet over.
 - **Dørklokke:** når noen ringer på, dekker et varsel hele skjermen med en lyd, uansett hvilken fane som er åpen.
 
 **Oppsett på et Android-nettbrett, uten ekstra apper:**
@@ -199,3 +217,4 @@ Har [deploy/truenas-compose.yaml](../deploy/truenas-compose.yaml) fått nye linj
 | Dashbordet åpner seg ikke | Sjekk at `ports` står i YAML-en, og at loggen sier `Dashbordet kjører på ...` |
 | `Sonos: Fant ingen Sonos-høyttalere` | Legg til `SONOS_IP` (se Sonos-avsnittet over) |
 | `Sonos: Får ikke kontakt med Sonos på ...` | Sjekk at adressen er riktig og at høyttaleren står på. TrueNAS og høyttalerne må være på samme nett |
+| Støvsuger-fanen sier «Får ikke kontakt med ...» | Sjekk at støvsugeren er på Wi-Fi (den svarer i Roborock-appen), og at adressen er riktig. Trykk «Let på nytt», eller skriv inn adressen |

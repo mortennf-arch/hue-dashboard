@@ -10,6 +10,7 @@ import type { VerisureClient, VerisureState } from "./verisure.js";
 import type { WeatherService } from "./weather.js";
 import type { WasteCalendar } from "./waste.js";
 import type { TimerManager } from "./timers.js";
+import type { RoborockManager, RoborockState } from "./roborock.js";
 
 /** Mappen med dashbordets filer (index.html, app.js, style.css). */
 const publicDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -45,6 +46,7 @@ export interface WebServer {
   broadcastSnapshot(): void;
   broadcastSonos(state: SonosState): void;
   broadcastVerisure(state: VerisureState): void;
+  broadcastRoborock(state: RoborockState): void;
   setBridgeStatus(connected: boolean, reason?: string): void;
   close(): void;
 }
@@ -97,8 +99,9 @@ export async function startWebServer(opts: {
   weather?: WeatherService;
   waste?: WasteCalendar;
   timers?: TimerManager;
+  roborock?: RoborockManager;
 }): Promise<WebServer> {
-  const { client, store, sonos, spotify, verisure, weather, waste, timers } = opts;
+  const { client, store, sonos, spotify, verisure, weather, waste, timers, roborock } = opts;
   const clients = new Set<http.ServerResponse>();
   const groupThrottle = new Throttle(1000);
   const lightThrottle = new Throttle(150);
@@ -106,7 +109,7 @@ export async function startWebServer(opts: {
   let bridge = { connected: true, reason: "" };
   // De siste hendelsene, slik at et nyåpnet dashbord har noe i loggen med en gang.
   const recent: HueEvent[] = [];
-  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured), verisure: verisure?.state ?? null, timers: timers?.list() ?? [] });
+  const snapshot = () => ({ bridge, resources: store.all(), recent, sonos: sonos?.current ?? null, spotify: Boolean(sonos && spotify?.configured), verisure: verisure?.state ?? null, timers: timers?.list() ?? [], roborock: roborock?.state ?? null });
 
   const send = (res: http.ServerResponse, event: string, data: unknown) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -357,6 +360,50 @@ export async function startWebServer(opts: {
       return json(res, 404, { error: "Ukjent adresse" });
     }
 
+    // Roborock: innlogging med kode på e-post, deretter styring på hjemmenettet.
+    if (url.pathname === "/api/roborock" || url.pathname.startsWith("/api/roborock/")) {
+      if (!roborock) return json(res, 404, { error: "Roborock er skrudd av" });
+      if (req.method === "GET" && url.pathname === "/api/roborock") return json(res, 200, roborock.state);
+      if (req.method !== "POST") return json(res, 405, { error: "Ikke tillatt" });
+      const body = await readBody(req);
+      try {
+        if (url.pathname === "/api/roborock/code") {
+          const email = typeof body.email === "string" ? body.email.trim() : "";
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(res, 400, { error: "Skriv inn e-posten du bruker i Roborock-appen" });
+          await roborock.sendCode(email);
+          return json(res, 200, { ok: true });
+        }
+        if (url.pathname === "/api/roborock/login") {
+          const code = typeof body.code === "string" ? body.code.replace(/\s/g, "") : "";
+          if (!/^\d{4,8}$/.test(code)) return json(res, 400, { error: "Skriv inn koden fra e-posten (bare tall)" });
+          await roborock.login(code);
+          return json(res, 200, { ok: true });
+        }
+        if (url.pathname === "/api/roborock/refresh") {
+          roborock.refresh().catch((err) => console.error("Roborock:", err.message));
+          return json(res, 202, { ok: true });
+        }
+        if (url.pathname === "/api/roborock/logout") {
+          await roborock.logout();
+          return json(res, 200, { ok: true });
+        }
+        const one = url.pathname.match(/^\/api\/roborock\/([\w-]{6,64})\/(command|ip)$/);
+        if (one && one[2] === "ip") {
+          const ip = typeof body.ip === "string" ? body.ip.trim() : "";
+          if (ip && !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return json(res, 400, { error: "Skriv IP-adressen som fire tall, for eksempel 192.168.68.50" });
+          roborock.setIp(one[1], ip);
+          return json(res, 200, { ok: true });
+        }
+        if (one) {
+          await roborock.command(one[1], body);
+          return json(res, 200, { ok: true });
+        }
+      } catch (err) {
+        return json(res, 400, { error: (err as Error).message });
+      }
+      return json(res, 404, { error: "Ukjent adresse" });
+    }
+
     if (req.method === "GET" && url.pathname === "/api/weather") {
       if (!weather?.configured) return json(res, 200, { available: false, configured: false });
       return json(res, 200, { configured: true, ...(await weather.state()) });
@@ -458,6 +505,7 @@ export async function startWebServer(opts: {
     broadcastSnapshot: () => broadcast("snapshot", snapshot()),
     broadcastSonos: (state) => broadcast("sonos", state),
     broadcastVerisure: (state) => broadcast("verisure", state),
+    broadcastRoborock: (state) => broadcast("roborock", state),
     setBridgeStatus: (connected, reason = "") => {
       if (bridge.connected === connected && bridge.reason === reason) return;
       bridge = { connected, reason };

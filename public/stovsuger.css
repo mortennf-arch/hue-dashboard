@@ -1,0 +1,68 @@
+/* Fanen «Støvsuger», felles for dashbordet og kjøkkenvisningen. Bruker fargene fra siden den står i. */
+.rb { --rb-pad: 16px; --rb-btn: 40px; --rb-font: 14px; --rb-h2: 17px; font-size: var(--rb-font); }
+.rb-big { --rb-pad: 20px; --rb-btn: 56px; --rb-font: 17px; --rb-h2: 22px; }
+
+.rb h2 { margin: 0; font-size: var(--rb-h2); font-weight: 600; }
+.rb h3 { margin: 0 0 8px; font-size: 0.8em; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.rb p { margin: 0; }
+.rb-muted { color: var(--muted); }
+.rb-bad { color: var(--bad); }
+.rb-accent { color: var(--accent); }
+.rb-msg { margin-bottom: 12px; }
+.rb-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.rb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 16px; align-items: start; }
+.rb-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: var(--rb-pad); display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.rb-login { max-width: 560px; }
+
+.rb-head { display: flex; align-items: center; gap: 12px; }
+.rb-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--surface-2); color: var(--muted); flex: none; }
+.rb-icon.rb-on { background: var(--accent); color: var(--accent-ink); }
+.rb-title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rb-title .rb-muted { font-size: 0.85em; }
+.rb-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; text-align: right; }
+.rb-battery { display: inline-block; width: 30px; height: 14px; border: 2px solid var(--muted); border-radius: 3px; padding: 1px; position: relative; }
+.rb-battery::after { content: ""; position: absolute; right: -5px; top: 3px; width: 3px; height: 4px; background: var(--muted); border-radius: 0 1px 1px 0; }
+.rb-battery-bar { display: block; height: 100%; background: var(--good); border-radius: 1px; }
+
+.rb-alert { background: var(--bad-bg, #3A1A1A); color: var(--bad); border-radius: 10px; padding: 10px 12px; }
+
+.rb-actions, .rb-row, .rb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.rb-chips + .rb-row, .rb-row + .rb-muted { margin-top: 12px; }
+.rb-btn, .rb-chip, .rb-segbtn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--rb-btn); padding: 0 16px; border-radius: 10px;
+  border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text);
+}
+.rb-btn:disabled, .rb-chip:disabled, .rb-segbtn:disabled { opacity: 0.5; cursor: default; }
+.rb-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.rb-ghost[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.rb-chip { border-radius: 999px; }
+.rb-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.rb-actions .rb-primary { flex: 1 1 180px; }
+
+.rb-settings { display: flex; flex-wrap: wrap; gap: 16px; }
+.rb-settings > div { flex: 1 1 220px; }
+.rb-seg { display: flex; border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden; }
+.rb-segbtn { flex: 1; border: 0; border-radius: 0; padding: 0 8px; background: transparent; }
+.rb-segbtn + .rb-segbtn { border-left: 1px solid var(--border-2); }
+.rb-segbtn[aria-pressed="true"] { background: var(--surface-2); color: var(--accent); font-weight: 600; }
+
+.rb-more summary { cursor: pointer; color: var(--text-2); padding: 4px 0; }
+.rb-more[open] summary { margin-bottom: 10px; }
+.rb-more > * + * { margin-top: 10px; }
+.rb-parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rb-parts li { display: grid; grid-template-columns: minmax(0, 1fr) 2fr 3.5em; gap: 10px; align-items: center; }
+.rb-meter { height: 8px; background: var(--track); border-radius: 99px; overflow: hidden; }
+.rb-meter > span { display: block; height: 100%; background: var(--good); }
+.rb-meter > span.rb-low { background: var(--bad); }
+
+.rb-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.rb-input { flex: 1 1 220px; min-height: var(--rb-btn); padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--bg); color: var(--text); font: inherit; }
+.rb-link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; min-height: 0; font: inherit; }
+.rb-foot { margin-top: 16px; color: var(--muted); }
+
+@media (max-width: 520px) {
+  .rb-head { flex-wrap: wrap; }
+  .rb-state { width: 100%; justify-content: flex-start; text-align: left; }
+}

@@ -113,7 +113,7 @@ function setFill(input) {
 
 // ---------- Faner ----------
 
-const TABS = ["musikk", "lys", "timer", "idag", "sikkerhet"];
+const TABS = ["musikk", "lys", "timer", "idag", "stovsuger", "sikkerhet"];
 let tab = TABS.includes(storage("kTab")) ? storage("kTab") : "musikk";
 
 const visibleTabs = () => TABS.filter((t) => !$(`tab-${t}`).hidden);
@@ -1077,6 +1077,23 @@ $("k-ring-close").addEventListener("click", () => {
 // ---------- Samlet tegning og kontakt med serveren ----------
 
 let queued = false;
+// ---------- Støvsuger (se stovsuger.js) ----------
+
+Stovsuger.mount($("rb-root"), { big: true });
+
+function setRoborock(next) {
+  Stovsuger.update(next);
+  const btn = $("tab-stovsuger");
+  const had = !btn.hidden;
+  btn.hidden = !next;
+  if (!had && next && storage("kTab") === "stovsuger" && tab !== "stovsuger") showTab("stovsuger", false);
+  if (had && !next && tab === "stovsuger") showTab("musikk", false);
+  // Under fanen: batteriet, eller at den holder på.
+  const active = (next?.vacuums ?? []).some((v) => v.connected && v.active);
+  const err = (next?.vacuums ?? []).some((v) => v.error);
+  $("k-stovsuger-tab").textContent = err ? "feil" : active ? "i gang" : "";
+}
+
 function render() {
   if (queued) return;
   queued = true;
@@ -1125,9 +1142,11 @@ function connect() {
     spotifyOn = Boolean(snap.spotify);
     online = true;
     setTimers(snap.timers ?? []);
+    setRoborock(snap.roborock ?? null);
     render();
   });
   es.addEventListener("timers", (e) => setTimers(JSON.parse(e.data)));
+  es.addEventListener("roborock", (e) => setRoborock(JSON.parse(e.data)));
   es.addEventListener("sonos", (e) => {
     sonos = JSON.parse(e.data);
     sonosAt = Date.now();
