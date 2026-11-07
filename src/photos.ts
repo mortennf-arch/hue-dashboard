@@ -14,6 +14,9 @@ export interface Photo {
   folder: string;
   /** Hele mappestien under bildemappa, for eksempel «2011 · Påske». Tom for bilder rett i bildemappa. */
   album: string;
+  /** Bredde og høyde slik bildet skal vises (etter EXIF-rotasjon). 0 hvis ukjent. */
+  w: number;
+  h: number;
   /** Når bildet ble tatt (EXIF), ellers når filen sist ble endret. ISO-dato, YYYY-MM-DD. */
   date: string;
 }
@@ -107,9 +110,10 @@ export class PhotoLibrary {
           if (!SHOW.has(ext) || photos.length >= MAX_PHOTOS) continue;
           const rel = path.relative(this.dir, full);
           const id = Buffer.from(rel).toString("base64url");
-          const date = (ext === ".jpg" || ext === ".jpeg" ? await exifDate(full) : null) ?? (await stat(full)).mtime.toISOString().slice(0, 10);
+          const meta = await imageMeta(full, ext);
+          const date = meta.date ?? (await stat(full)).mtime.toISOString().slice(0, 10);
           const album = path.dirname(rel) === "." ? "" : path.dirname(rel).split(path.sep).join(" · ");
-          photos.push({ id, folder, album, date });
+          photos.push({ id, folder, album, date, w: meta.w, h: meta.h });
           files.set(id, full);
         }
       };
@@ -158,39 +162,69 @@ export class PhotoLibrary {
   }
 }
 
-/** Leser DateTimeOriginal (eller DateTime) fra EXIF i starten av en JPEG. */
-export async function exifDate(file: string): Promise<string | null> {
+export interface ImageMeta {
+  date: string | null;
+  w: number;
+  h: number;
+}
+
+/** Leser dato og størrelse fra starten av en bildefil, uten å lese hele filen. */
+export async function imageMeta(file: string, ext = path.extname(file).toLowerCase()): Promise<ImageMeta> {
   let fh;
   try {
     fh = await open(file, "r");
-    const buf = Buffer.alloc(128 * 1024);
+    const buf = Buffer.alloc(ext === ".jpg" || ext === ".jpeg" ? 256 * 1024 : 64);
     const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
-    return parseExifDate(buf.subarray(0, bytesRead));
+    return parseImageMeta(buf.subarray(0, bytesRead));
   } catch {
-    return null;
+    return { date: null, w: 0, h: 0 };
   } finally {
     await fh?.close();
   }
 }
 
+/** Bare datoen, for bakoverkompatibilitet og tester. */
+export async function exifDate(file: string): Promise<string | null> {
+  return (await imageMeta(file)).date;
+}
+
 export function parseExifDate(buf: Buffer): string | null {
-  if (buf.length < 4 || buf.readUInt16BE(0) !== 0xffd8) return null;
+  return parseImageMeta(buf).date;
+}
+
+export function parseImageMeta(buf: Buffer): ImageMeta {
+  const none = { date: null, w: 0, h: 0 };
+  // PNG: bredde og høyde står fast i IHDR.
+  if (buf.length >= 24 && buf.readUInt32BE(0) === 0x89504e47) return { date: null, w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+  if (buf.length < 4 || buf.readUInt16BE(0) !== 0xffd8) return none;
+  let date: string | null = null;
+  let orientation = 1;
   let pos = 2;
   while (pos + 4 <= buf.length) {
-    if (buf[pos] !== 0xff) return null;
+    if (buf[pos] !== 0xff) break;
     const marker = buf[pos + 1];
     const len = buf.readUInt16BE(pos + 2);
     if (marker === 0xe1 && buf.toString("latin1", pos + 4, pos + 10) === "Exif\0\0") {
-      return tiffDate(buf.subarray(pos + 10, Math.min(buf.length, pos + 2 + len)));
+      const tiff = readTiff(buf.subarray(pos + 10, Math.min(buf.length, pos + 2 + len)));
+      date = tiff.date;
+      orientation = tiff.orientation;
     }
-    if (marker === 0xda) return null;
+    // SOF-markørene (ikke DHT C4, JPG C8 eller DAC CC) har høyde og bredde.
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc && pos + 9 <= buf.length) {
+      const h = buf.readUInt16BE(pos + 5);
+      const w = buf.readUInt16BE(pos + 7);
+      // Orientering 5–8 betyr at bildet er rotert 90 grader.
+      return orientation >= 5 ? { date, w: h, h: w } : { date, w, h };
+    }
+    if (marker === 0xda) break;
     pos += 2 + len;
   }
-  return null;
+  return { date, w: 0, h: 0 };
 }
 
-function tiffDate(t: Buffer): string | null {
-  if (t.length < 8) return null;
+function readTiff(t: Buffer): { date: string | null; orientation: number } {
+  const out = { date: null as string | null, orientation: 1 };
+  if (t.length < 8) return out;
   const le = t.toString("latin1", 0, 2) === "II";
   const u16 = (o: number) => (le ? t.readUInt16LE(o) : t.readUInt16BE(o));
   const u32 = (o: number) => (le ? t.readUInt32LE(o) : t.readUInt32BE(o));
@@ -211,6 +245,8 @@ function tiffDate(t: Buffer): string | null {
     return tags;
   };
   const ifd0 = readIfd(u32(4));
+  const orient = ifd0.get(0x0112);
+  if (orient !== undefined) out.orientation = u16(orient + 8);
   let text = "";
   const exifPtr = ifd0.get(0x8769);
   if (exifPtr !== undefined) {
@@ -220,6 +256,6 @@ function tiffDate(t: Buffer): string | null {
   }
   if (!text && ifd0.has(0x0132)) text = ascii(ifd0.get(0x0132)!);
   const m = text.match(/^(\d{4}):(\d{2}):(\d{2})/);
-  if (!m || m[1] === "0000") return null;
-  return `${m[1]}-${m[2]}-${m[3]}`;
+  if (m && m[1] !== "0000") out.date = `${m[1]}-${m[2]}-${m[3]}`;
+  return out;
 }

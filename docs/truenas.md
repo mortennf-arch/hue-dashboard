@@ -198,7 +198,7 @@ Appen ser etter nye bilder hver halvtime, eller når du trykker «Se etter bilde
 
 - **Formater:** JPEG, PNG, WebP, GIF og AVIF. Bilder fra iPhone er ofte HEIC, og det kan ikke Chrome vise. Fanen sier hvor mange bilder den hoppet over. Stiller du iPhone på **Innstillinger > Kamera > Formater > Mest kompatibel**, blir nye bilder JPEG.
 - **Datoen** hentes fra bildet (EXIF), ellers fra når filen ble lagret.
-- **Lysbildevisningen** starter av seg selv etter 5 minutter på nettbrettet. I dashbordet er det av, men det kan slås på i fanen. Valget gjelder bare skjermen der det gjøres. Et trykk hvor som helst lukker den. Ringer det på døra eller en timer, lukkes den.
+- **Lysbildevisningen** starter av seg selv etter 5 minutter på nettbrettet. I dashbordet er det av, men det kan slås på i fanen. Valget gjelder bare skjermen der det gjøres. Liggende bilder fyller hele skjermen, og stående bilder vises to og to side om side. Dra fingeren sideveis for å bla fram eller tilbake. Et trykk lukker visningen. Ringer det på døra eller en timer, lukkes den.
 - Ligger bildene et annet sted i containeren, kan du sette `BILDER_DIR`. Vil du skru av fanen helt, sett `BILDER: "off"`.
 
 ## Kjøkkennettbrett (valgfritt)
