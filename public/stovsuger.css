@@ -1,6 +1,6 @@
 /* Fanen «Støvsuger», felles for dashbordet og kjøkkenvisningen. Bruker fargene fra siden den står i. */
-.rb { --rb-pad: 16px; --rb-btn: 40px; --rb-font: 14px; --rb-h2: 17px; font-size: var(--rb-font); }
-.rb-big { --rb-pad: 20px; --rb-btn: 56px; --rb-font: 17px; --rb-h2: 22px; }
+.rb { --rb-pad: 18px; --rb-btn: 44px; --rb-room: 52px; --rb-font: 14px; --rb-h2: 18px; --rb-now: 30px; font-size: var(--rb-font); }
+.rb-big { --rb-pad: 22px; --rb-btn: 56px; --rb-room: 72px; --rb-font: 17px; --rb-h2: 24px; --rb-now: 44px; }
 
 .rb h2 { margin: 0; font-size: var(--rb-h2); font-weight: 600; }
 .rb h3 { margin: 0 0 8px; font-size: 0.8em; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
@@ -8,45 +8,71 @@
 .rb-muted { color: var(--muted); }
 .rb-bad { color: var(--bad); }
 .rb-accent { color: var(--accent); }
+.rb-good { color: var(--good); }
 .rb-msg { margin-bottom: 12px; }
 .rb-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.rb-grow { flex-grow: 1; }
 
-.rb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 16px; align-items: start; }
-.rb-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: var(--rb-pad); display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* Kortene side om side. Støvsugere med rom får mer plass. */
+.rb-grid { display: flex; flex-wrap: wrap; gap: 18px; align-items: stretch; }
+.rb-card { flex: 1 1 340px; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: var(--rb-pad); display: flex; flex-direction: column; gap: 18px; }
+.rb-card.rb-wide { flex: 1.7 1 520px; }
+.rb-card.rb-working { border-color: var(--accent); }
 .rb-login { max-width: 560px; }
 
-.rb-head { display: flex; align-items: center; gap: 12px; }
-.rb-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--surface-2); color: var(--muted); flex: none; }
+.rb-head { display: flex; align-items: center; gap: 14px; }
+.rb-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--surface-2); color: var(--muted); flex: none; }
 .rb-icon.rb-on { background: var(--accent); color: var(--accent-ink); }
 .rb-title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.rb-title .rb-muted { font-size: 0.85em; }
-.rb-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; text-align: right; }
-.rb-battery { display: inline-block; width: 30px; height: 14px; border: 2px solid var(--muted); border-radius: 3px; padding: 1px; position: relative; }
-.rb-battery::after { content: ""; position: absolute; right: -5px; top: 3px; width: 3px; height: 4px; background: var(--muted); border-radius: 0 1px 1px 0; }
-.rb-battery-bar { display: block; height: 100%; background: var(--good); border-radius: 1px; }
+.rb-status { font-size: 1.15em; font-weight: 600; }
 
-.rb-alert { background: var(--bad-bg, #3A1A1A); color: var(--bad); border-radius: 10px; padding: 10px 12px; }
+/* Batteriikon med fyll, lyn når det lader, og prosent. */
+.rb-batt { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); flex: none; }
+.rb-batt-body { position: relative; display: inline-block; width: 34px; height: 17px; border: 2px solid var(--muted); border-radius: 4px; padding: 2px; }
+.rb-batt-body::after { content: ""; position: absolute; right: -6px; top: 4px; width: 3px; height: 5px; background: var(--muted); border-radius: 0 2px 2px 0; }
+.rb-batt-fill { display: block; height: 100%; background: var(--good); border-radius: 1px; }
+.rb-batt-low .rb-batt-fill { background: var(--bad); }
+.rb-bolt { position: absolute; inset: -2px 0 0; margin: auto; width: 15px; height: 15px; fill: var(--text); stroke: var(--surface); stroke-width: 1.5; }
+.rb-batt-pct { font-variant-numeric: tabular-nums; }
+.rb-big .rb-batt-body { width: 42px; height: 21px; }
+.rb-big .rb-batt-body::after { top: 5px; height: 7px; }
+.rb-big .rb-bolt { width: 18px; height: 18px; }
 
-.rb-actions, .rb-row, .rb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.rb-chips + .rb-row, .rb-row + .rb-muted { margin-top: 12px; }
-.rb-btn, .rb-chip, .rb-segbtn {
+.rb-alert { background: var(--bad-bg, #3A1A1A); color: var(--bad); border-radius: 12px; padding: 10px 14px; }
+
+/* Velg rom og hvordan. */
+.rb-setup { display: flex; flex-direction: column; gap: 18px; }
+.rb-setup.rb-has-rooms { flex-direction: row; flex-wrap: wrap; gap: 22px; }
+.rb-where { flex: 1 1 220px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rb-where h3 { margin: 0; }
+.rb-options { flex: 1.25 1 280px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rb-rooms { display: flex; flex-direction: column; gap: 10px; }
+.rb-room { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: var(--rb-room); padding: 0 18px; border-radius: 16px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font-size: 1.25em; font-weight: 600; text-align: left; }
+.rb-room[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.rb-room-mark { display: inline-flex; }
+
+.rb-seg { display: flex; border: 1px solid var(--border-2); border-radius: 14px; overflow: hidden; }
+.rb-segbtn { flex: 1 1 0; min-width: 0; min-height: var(--rb-btn); padding: 0 6px; border: 0; background: transparent; color: var(--text-2); }
+.rb-segbtn + .rb-segbtn { border-left: 1px solid var(--border-2); }
+.rb-segbtn[aria-pressed="true"] { background: var(--surface-2); color: var(--accent); font-weight: 700; }
+.rb-field h3 { margin-bottom: 8px; }
+
+/* Mens den jobber. */
+.rb-now { display: flex; flex-direction: column; gap: 6px; padding: 22px 22px; background: var(--surface-2); border-radius: 18px; }
+.rb-now-label { font-size: 0.85em; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.rb-now-state { font-size: var(--rb-now); font-weight: 700; color: var(--accent); letter-spacing: -0.01em; line-height: 1.15; }
+.rb-now-job { font-size: 1.15em; color: var(--text-2); }
+
+.rb-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.rb-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: var(--rb-btn); padding: 0 16px; border-radius: 10px;
+  min-height: var(--rb-btn); padding: 0 18px; border-radius: 14px;
   border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text);
 }
-.rb-btn:disabled, .rb-chip:disabled, .rb-segbtn:disabled { opacity: 0.5; cursor: default; }
-.rb-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.rb-ghost[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-.rb-chip { border-radius: 999px; }
-.rb-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.rb-actions .rb-primary { flex: 1 1 180px; }
-
-.rb-settings { display: flex; flex-wrap: wrap; gap: 16px; }
-.rb-settings > div { flex: 1 1 220px; }
-.rb-seg { display: flex; border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden; }
-.rb-segbtn { flex: 1; border: 0; border-radius: 0; padding: 0 8px; background: transparent; }
-.rb-segbtn + .rb-segbtn { border-left: 1px solid var(--border-2); }
-.rb-segbtn[aria-pressed="true"] { background: var(--surface-2); color: var(--accent); font-weight: 600; }
+.rb-btn:disabled, .rb-segbtn:disabled, .rb-room:disabled { opacity: 0.55; cursor: default; }
+.rb-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.rb-main { flex: 1 1 220px; min-height: calc(var(--rb-btn) + 8px); font-size: 1.2em; }
+.rb-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .rb-more summary { cursor: pointer; color: var(--text-2); padding: 4px 0; }
 .rb-more[open] summary { margin-bottom: 10px; }
@@ -58,11 +84,11 @@
 .rb-meter > span.rb-low { background: var(--bad); }
 
 .rb-form { display: flex; flex-wrap: wrap; gap: 8px; }
-.rb-input { flex: 1 1 220px; min-height: var(--rb-btn); padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--bg); color: var(--text); font: inherit; }
+.rb-input { flex: 1 1 220px; min-height: var(--rb-btn); padding: 0 12px; border-radius: 12px; border: 1px solid var(--border-2); background: var(--bg); color: var(--text); font: inherit; }
 .rb-link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; min-height: 0; font: inherit; }
 .rb-foot { margin-top: 16px; color: var(--muted); }
 
 @media (max-width: 520px) {
-  .rb-head { flex-wrap: wrap; }
-  .rb-state { width: 100%; justify-content: flex-start; text-align: left; }
+  .rb-card, .rb-card.rb-wide { flex-basis: 100%; }
+  .rb-segbtn { font-size: 0.9em; }
 }

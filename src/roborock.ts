@@ -75,10 +75,16 @@ export interface VacuumState {
   cleanMinutes: number | null;
   cleanArea: number | null;
   rooms: { segment: number; name: string }[];
+  /** Det dashbordet sist ba den om, så skjermen kan vise «Støvsug og vask · Stue og Kjøkken». */
+  job: { mode: CleanMode; rooms: string[]; repeat: number; at: string } | null;
+  /** Om den kan vaske (har mopp). Da vises «Hva?» og vann. */
+  canMop: boolean;
   consumables: { key: string; name: string; percent: number; hoursLeft: number }[];
   totals: { hours: number; area: number; count: number } | null;
   updated: string | null;
 }
+
+export type CleanMode = "both" | "vac" | "mop";
 
 export interface RoborockState {
   status: "login" | "code_sent" | "loading" | "ok" | "error";
@@ -108,14 +114,32 @@ const STATES: Record<number, string> = {
   17: "Støvsuger sone",
   18: "Støvsuger rom",
   22: "Tømmer beholderen",
+  28: "I samtale",
+  30: "Overvåker",
+  32: "Patruljerer",
+  33: "Fester moppen",
+  34: "Tar av moppen",
+  101: "Frakoblet",
+  103: "Låst",
+  202: "Stopper tørkingen",
+  6301: "Vasker gulvet",
+  6302: "Støvsuger og vasker",
+  6303: "Vasker gulvet",
+  6304: "Vasker rom",
+  6305: "Støvsuger og vasker rom",
+  6306: "Vasker rom",
+  6307: "Vasker sone",
+  6308: "Støvsuger og vasker sone",
+  6309: "Vasker sone",
+  6310: "Kjører hjem for å vaske moppen",
   23: "Vasker moppen",
   25: "Vasker moppen",
   26: "Kjører for å vaske moppen",
   29: "Lager kart",
   100: "Ferdig ladet",
 };
-const ACTIVE = new Set([1, 4, 5, 6, 7, 11, 15, 16, 17, 18, 26, 29]);
-const DOCKED = new Set([8, 9, 22, 23, 25, 100]);
+const ACTIVE = new Set([1, 4, 5, 6, 7, 11, 15, 16, 17, 18, 23, 25, 26, 29, 33, 34, 6301, 6302, 6303, 6304, 6305, 6306, 6307, 6308, 6309, 6310]);
+const DOCKED = new Set([8, 9, 22, 100, 202]);
 
 const ERRORS: Record<number, string> = {
   1: "Lasertårnet er blokkert",
@@ -329,6 +353,28 @@ class Cloud {
   }
 }
 
+/** get_room_mapping svarer enten [[16, "123", 14], …] eller, med ett rom, [16, "123"]. */
+export function parseRoomMapping(raw: unknown): [number, string][] {
+  if (!Array.isArray(raw)) return [];
+  if (raw.length >= 2 && !Array.isArray(raw[0]) && Number.isFinite(Number(raw[0]))) return [[Number(raw[0]), String(raw[1])]];
+  return raw.filter((m) => Array.isArray(m) && m.length >= 2 && Number.isFinite(Number(m[0]))).map((m) => [Number(m[0]), String(m[1])]);
+}
+
+/** Rommene på kartet som er i bruk, fra get_multi_maps_list: [{ map_info: [{ mapFlag, rooms: [{ id, iot_name_id, iot_name }] }] }]. */
+export function parseMapRooms(raw: unknown, current: number | null): Map<number, [string, string]> {
+  const out = new Map<number, [string, string]>();
+  const root: any = Array.isArray(raw) ? raw[0] : raw;
+  const maps: any[] = Array.isArray(root?.map_info) ? root.map_info : [];
+  const flagOf = (m: any) => Number(m?.mapFlag ?? m?.map_flag);
+  const chosen = maps.find((m) => current !== null && flagOf(m) === current) ?? (maps.length === 1 ? maps[0] : null);
+  for (const r of Array.isArray(chosen?.rooms) ? chosen.rooms : []) {
+    const id = Number(r?.id);
+    if (!Number.isFinite(id)) continue;
+    out.set(id, [r.iot_name_id != null ? String(r.iot_name_id) : "", typeof r.iot_name === "string" ? r.iot_name : ""]);
+  }
+  return out;
+}
+
 /** Én støvsuger: holder forbindelsen oppe og spør om status jevnlig. */
 class Vacuum {
   conn: LocalConnection | null = null;
@@ -336,6 +382,11 @@ class Vacuum {
   private timer: NodeJS.Timeout | null = null;
   private slowAt = 0;
   private mapping: [number, string][] = [];
+  /** Rom fra get_multi_maps_list: segment → [iot-id, navn]. Nyere modeller har navnene her. */
+  private mapRooms = new Map<number, [string, string]>();
+  private mapFlag: number | null = null;
+  private dry = 0;
+  private lastRoomLog = "";
   private failures = 0;
   private connecting = false;
   stopped = false;
@@ -364,6 +415,8 @@ class Vacuum {
       cleanMinutes: null,
       cleanArea: null,
       rooms: [],
+      job: null,
+      canMop: false,
       consumables: [],
       totals: null,
       updated: null,
@@ -419,17 +472,29 @@ class Vacuum {
 
   private applyStatus(s: Record<string, any>): void {
     const patch: Partial<VacuumState> = { updated: new Date().toISOString() };
-    if (s.state !== undefined) {
-      const st = Number(s.state);
-      patch.state = st;
-      patch.stateText = STATES[st] ?? `Tilstand ${st}`;
-      patch.active = ACTIVE.has(st);
-      patch.docked = DOCKED.has(st);
+    if (s.dry_status !== undefined) this.dry = Number(s.dry_status) || 0;
+    if (s.map_status !== undefined && Number.isFinite(Number(s.map_status))) {
+      const flag = Number(s.map_status) >> 2;
+      this.mapFlag = flag === 63 ? null : flag;
     }
     if (s.battery !== undefined) patch.battery = Number(s.battery);
+    const st = s.state !== undefined ? Number(s.state) : this.state.state;
+    if (st !== null) {
+      const battery = patch.battery ?? this.state.battery;
+      patch.state = st;
+      patch.active = ACTIVE.has(st);
+      patch.docked = DOCKED.has(st);
+      // Samme ord som Roborock-appen bruker der det finnes et bedre ord enn selve tilstanden.
+      patch.stateText = patch.docked && this.dry === 1 ? "Tørker moppen" : (st === 8 && battery === 100) || st === 100 ? "Ferdig ladet" : (STATES[st] ?? `Tilstand ${st}`);
+      // Når den er hjemme igjen og ferdig, glemmer vi jobben.
+      if (this.state.job && patch.docked && !patch.active && st !== 22 && Date.now() - Date.parse(this.state.job.at) > 60_000) patch.job = null;
+    }
     if (s.error_code !== undefined) patch.error = Number(s.error_code) ? (ERRORS[Number(s.error_code)] ?? `Feilkode ${s.error_code}`) : "";
     if (s.fan_power !== undefined) patch.fan = Number(s.fan_power);
-    if (s.water_box_mode !== undefined) patch.water = Number(s.water_box_mode);
+    if (s.water_box_mode !== undefined) {
+      patch.water = Number(s.water_box_mode);
+      patch.canMop = true;
+    }
     if (s.clean_time !== undefined) patch.cleanMinutes = Math.round(Number(s.clean_time) / 60);
     if (s.clean_area !== undefined) patch.cleanArea = Math.round(Number(s.clean_area) / 100_000) / 10;
     this.set(patch);
@@ -463,9 +528,7 @@ class Vacuum {
   }
 
   private async refreshSlow(conn: LocalConnection): Promise<void> {
-    const mapping = await conn.request<any[]>("get_room_mapping").catch(() => null);
-    if (Array.isArray(mapping)) this.mapping = mapping.filter((m) => Array.isArray(m)).map((m) => [Number(m[0]), String(m[1])]);
-    this.updateRooms();
+    await this.refreshRooms(conn);
     const cons = await conn.request<any>("get_consumable").catch(() => null);
     const c = Array.isArray(cons) ? cons[0] : cons;
     if (c && typeof c === "object") {
@@ -482,10 +545,50 @@ class Vacuum {
     this.changed();
   }
 
+  /**
+   * Rommene hentes to steder fra, slik python-roborock gjør: get_room_mapping (segment og rom-id)
+   * og get_multi_maps_list (rommene på hvert kart, ofte med navn). Navnene fra Roborock-kontoen vinner.
+   */
+  private async refreshRooms(conn: LocalConnection): Promise<void> {
+    const errText = (e: Error) => `feil: ${e.message}`;
+    let mappingRaw: unknown = null;
+    let mapsRaw: unknown = null;
+    try {
+      mappingRaw = await conn.request("get_room_mapping", [], 15_000);
+      this.mapping = parseRoomMapping(mappingRaw);
+    } catch (e) {
+      mappingRaw = errText(e as Error);
+    }
+    try {
+      mapsRaw = await conn.request("get_multi_maps_list", [], 15_000);
+      this.mapRooms = parseMapRooms(mapsRaw, this.mapFlag);
+    } catch (e) {
+      mapsRaw = errText(e as Error);
+    }
+    this.updateRooms();
+    // Skriv svarene i loggen når de endrer seg, så det er lett å se hva støvsugeren faktisk sier.
+    const log = `rom ${JSON.stringify(mappingRaw)}; kart ${JSON.stringify(mapsRaw)}`.slice(0, 1500);
+    if (log !== this.lastRoomLog) {
+      this.lastRoomLog = log;
+      console.log(`Roborock: ${this.dev.name}: ${this.state.rooms.length} rom (${this.state.rooms.map((r) => `${r.name}=${r.segment}`).join(", ") || "ingen"}). Svar fra støvsugeren: ${log}`);
+    }
+    // Fant vi ingen rom, prøver vi igjen om to minutter i stedet for en halvtime.
+    if (!this.state.rooms.length) this.slowAt = Math.min(this.slowAt, Date.now() + 2 * 60_000);
+  }
+
   updateRooms(): void {
     const names = this.roomNames();
-    this.state.rooms = this.mapping.map(([segment, id]) => ({ segment, name: names.get(id) || `Rom ${segment}` })).sort((a, b) => a.name.localeCompare(b.name, "nb"));
+    const segments = new Map<number, string>();
+    for (const [seg, id] of this.mapping) segments.set(seg, id);
+    for (const [seg, [id]] of this.mapRooms) if (!segments.has(seg) || !segments.get(seg)) segments.set(seg, id);
+    this.state.rooms = [...segments]
+      .map(([segment, id]) => ({ segment, name: names.get(id) || this.mapRooms.get(segment)?.[1] || `Rom ${segment}` }))
+      .sort((a, b) => a.name.localeCompare(b.name, "nb"));
     this.changed();
+  }
+
+  setJob(job: VacuumState["job"]): void {
+    this.set({ job });
   }
 
   setIp(ip: string | null, manual = false): void {
@@ -733,6 +836,27 @@ export class RoborockManager {
       case "find":
         await v.command("find_me");
         return;
+      case "clean": {
+        // Hele jobben på én gang: hva (støvsug/vask/begge), styrke, vann, rom og antall ganger.
+        const mode: CleanMode = body.mode === "vac" || body.mode === "mop" ? body.mode : "both";
+        const fan = Number(body.fan ?? 102);
+        const water = Number(body.water ?? 202);
+        if (![101, 102, 103, 104].includes(fan)) throw new Error("Ugyldig sugestyrke");
+        if (![201, 202, 203].includes(water)) throw new Error("Ugyldig vannmengde");
+        if (mode !== "both" && !v.state.canMop) throw new Error("Denne støvsugeren kan ikke vaske");
+        const known = new Map(v.state.rooms.map((r) => [r.segment, r.name]));
+        const segs = Array.isArray(body.segments) ? [...new Set(body.segments.map(Number))].filter((n) => known.has(n)) : [];
+        const repeat = Math.min(2, Math.max(1, Math.round(Number(body.repeat) || 1)));
+        // 105 = sug av (bare vask), 200 = vann av (bare støvsug).
+        await v.command("set_custom_mode", [mode === "mop" ? 105 : fan]);
+        if (v.state.canMop) await v.command("set_water_box_custom_mode", [mode === "vac" ? 200 : water]);
+        // To ganger for hele huset går bare via rommene, så da tar vi alle rommene den kjenner.
+        const targets = segs.length ? segs : repeat > 1 ? [...known.keys()] : [];
+        if (targets.length) await v.command("app_segment_clean", [{ segments: targets, repeat }]);
+        else await v.command("app_start");
+        v.setJob({ mode, rooms: segs.map((s) => known.get(s)!), repeat: targets.length ? repeat : 1, at: new Date().toISOString() });
+        return;
+      }
       case "rooms": {
         const segs = Array.isArray(body.segments) ? body.segments.map(Number).filter((n) => Number.isInteger(n) && n >= 0) : [];
         if (!segs.length) throw new Error("Velg minst ett rom");

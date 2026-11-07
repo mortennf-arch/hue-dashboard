@@ -164,7 +164,7 @@ Kalenderen hentes to ganger i døgnet og lagres i `tommekalender.json` i dataset
 
 ## Roborock-støvsugere (valgfritt)
 
-Fanen **Støvsuger** styrer Roborock-støvsugerne: start hele huset eller utvalgte rom, pause, send hjem til laderen og «Finn» (den piper). Den viser også status, batteri, feil, sugestyrke, vann til moppen, slitedeler og statistikk. Fanen finnes både i dashbordet og på kjøkkennettbrettet.
+Fanen **Støvsuger** viser begge støvsugerne side om side. Mens en støvsuger står i laderen, velger du rom (gult = valgt, ingen valgt = hele huset), om den skal støvsuge, vaske eller begge deler, sugestyrke, mengde vann og én eller to ganger, og trykker Start. Mens den jobber, står det stort hva den holder på med akkurat nå, for eksempel «Støvsuger», «Vasker gulvet», «Vasker moppen», «Kjører hjem» eller «Tørker moppen», med knapper for pause, avslutt, hjem til laderen og «Finn» (den piper). Batteriet vises med et ikon. Under «Slitedeler og statistikk» står slitedeler og totaler. Valgene huskes per støvsuger på hver skjerm. Fanen finnes både i dashbordet og på kjøkkennettbrettet.
 
 Du trenger ikke endre noe i TrueNAS:
 
@@ -174,7 +174,7 @@ Du trenger ikke endre noe i TrueNAS:
 
 Roborock har ikke noe offisielt API. Dette gjør det samme som Home Assistant, og kan slutte å virke hvis Roborock endrer noe.
 
-- **Rommene** heter det samme som i Roborock-appen. Har du endret navn eller kart, trykk «Hent støvsugere og rom på nytt» nederst i fanen.
+- **Rommene** heter det samme som i Roborock-appen. Har du endret navn eller kart, trykk «Hent støvsugere og rom på nytt» nederst i fanen. Mangler rommene, se i loggen etter linjen `Roborock: <navn>: N rom (...). Svar fra støvsugeren: ...`. Den viser hva støvsugeren svarte.
 - **Finner den ikke støvsugeren?** Skriv inn IP-adressen i fanen. Den står i Roborock-appen under støvsugeren (⋯ > Produktinfo) eller i ruteren. Lag gjerne en DHCP-reservasjon, slik du gjorde for Hue-broen. Dashbordet leter i samme nett som Hue-broen. Ligger støvsugerne et annet sted, kan du sette `ROBOROCK_SUBNET: "192.168.1"`.
 - **Tar du støvsugeren ut av appen og legger den inn igjen,** får den en ny nøkkel. Trykk da «Hent støvsugere og rom på nytt».
 - Vil du skru av fanen helt, sett `ROBOROCK: "off"`.
