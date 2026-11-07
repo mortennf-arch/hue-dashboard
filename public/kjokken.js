@@ -1085,7 +1085,7 @@ Bilder.mount($("bd-root"), {
   big: true,
   key: "k",
   idleDefault: 5,
-  info: () => (weather?.now ? `${Weather.temp(weather.now.temp)} ${weather.now.text.toLowerCase()}` : ""),
+  weather: () => weather?.now ?? null,
 });
 
 // ---------- Støvsuger (se stovsuger.js) ----------

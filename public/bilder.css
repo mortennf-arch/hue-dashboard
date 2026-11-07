@@ -35,17 +35,26 @@
 .bd-empty p { color: var(--text-2); }
 
 /* Lysbildevisningen dekker hele skjermen. Dørklokka og timeren (z-index 10 og høyere) ligger over. */
-.bd-show { position: fixed; inset: 0; z-index: 8; background: #000; cursor: pointer; overflow: hidden; }
-.bd-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 1.2s ease; }
+.bd-show { position: fixed; inset: 0; z-index: 8; background: #000; cursor: pointer; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.bd-layer { position: absolute; inset: 0; display: flex; gap: 6px; background: #111; opacity: 0; transition: opacity 1.2s ease; }
+.bd-layer.fast { transition-duration: 0.35s; }
 .bd-layer.on { opacity: 1; }
-/* Én linje nederst: klokka stor til venstre, dag og vær bortover etter den. */
-.bd-over { position: absolute; left: 28px; bottom: 24px; display: flex; align-items: baseline; gap: 20px; max-width: calc(100% - 56px); padding: 10px 22px; border-radius: 18px; background: rgba(0, 0, 0, 0.55); color: #fff; }
-.bd-over[hidden] { display: none; }
-.bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; flex: none; }
-.bd-sub { font-size: clamp(16px, 2.2vw, 26px); color: #E4E7EC; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-/* Datoen bildet ble tatt, oppe til venstre. */
-.bd-cap { position: absolute; left: 28px; top: 24px; padding: 8px 16px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: clamp(16px, 1.8vw, 20px); font-weight: 600; }
-.bd-cap:empty, .bd-cap[hidden] { display: none; }
+.bd-pane { position: relative; flex: 1 1 0; min-width: 0; overflow: hidden; }
+/* Liggende bilder og par fyller hele flaten. Et stående bilde alene vises helt, på svart. */
+.bd-pane img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
+.bd-alone { background: #000; }
+.bd-alone .bd-pane img { object-fit: contain; }
+
+/* Tekst rett på bildet, med et tynt svart omriss så den kan leses på både lyse og mørke bilder. */
+.bd-ol { color: #fff; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 4px rgba(0, 0, 0, 0.6); }
+.bd-date { position: absolute; top: 20px; right: 24px; font-size: clamp(18px, 2vw, 24px); font-weight: 600; }
+.bd-date:empty { display: none; }
+.bd-bottom { position: absolute; left: 28px; right: 28px; bottom: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; pointer-events: none; }
+.bd-bottom[hidden] { display: none; }
+.bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.bd-today { display: flex; align-items: center; gap: 18px; font-size: clamp(20px, 2.6vw, 32px); font-weight: 600; white-space: nowrap; }
+.bd-wx { display: inline-flex; align-items: center; gap: 8px; }
+.bd-wx .wx-icon { filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 2px rgba(0, 0, 0, 0.7)); }
 
 @media (max-width: 1000px) {
   .bd { grid-template-columns: minmax(0, 1fr); }

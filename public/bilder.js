@@ -27,7 +27,7 @@
 
   const dateFmt = new Intl.DateTimeFormat("nb-NO", { day: "numeric", month: "long", year: "numeric" });
   const clockFmt = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
-  const dayFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "long", day: "numeric", month: "long" });
+  const weekdayFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "long" });
 
   let root = null;
   let opts = {};
@@ -63,7 +63,7 @@
   /**
    * opts.big: store knapper (nettbrettet).
    * opts.idleDefault: minutter før lysbildevisningen starter av seg selv, hvis ikke valgt på enheten.
-   * opts.info(): tekst under klokka i lysbildevisningen, for eksempel været.
+   * opts.weather(): været nå ({temp, symbol, text}), vises nede til høyre i lysbildevisningen.
    * opts.key: prefiks for innstillingene i nettleseren.
    * opts.onSummary(summary): kalles når siden vet hvor mange bilder det er.
    */
@@ -220,57 +220,127 @@
   }
 
   // ---------- Lysbildevisningen ----------
+  // Liggende bilder fyller hele skjermen. Stående bilder vises to og to, side om side med en tynn vegg mellom.
+  // Dra fingeren sideveis for å bla, trykk for å lukke.
+
+  let slides = [];
+  let slideAt = 0;
+  let showSeq = 0;
+  const portrait = (p) => p.w > 0 && p.h > p.w;
+
+  /** Deler rekkefølgen opp i lysbilder. Et stående bilde får følge av det neste stående bildet. */
+  function buildSlides() {
+    const rotated = order.slice(pos).concat(order.slice(0, pos));
+    const out = [];
+    let waiting = -1;
+    for (const i of rotated) {
+      if (!portrait(list[i])) {
+        out.push([i]);
+      } else if (waiting < 0) {
+        waiting = out.length;
+        out.push([i]);
+      } else {
+        out[waiting].push(i);
+        waiting = -1;
+      }
+    }
+    return out;
+  }
 
   function start() {
     if (show || !order.length) return;
+    slides = buildSlides();
+    slideAt = 0;
     show = document.createElement("div");
     show.className = "bd-show";
     show.setAttribute("role", "dialog");
-    show.setAttribute("aria-label", "Lysbildevisning. Trykk for å lukke.");
-    show.innerHTML = `<img class="bd-layer" alt=""><img class="bd-layer" alt="">
-      <span class="bd-cap"></span>
-      <div class="bd-over" ${settings.clock ? "" : "hidden"}><span class="bd-clock"></span><span class="bd-sub"></span></div>`;
-    show.addEventListener("click", stop);
+    show.setAttribute("aria-label", "Lysbildevisning. Dra sideveis for å bla, trykk for å lukke.");
+    show.innerHTML = `<div class="bd-layer"></div><div class="bd-layer"></div>
+      <div class="bd-bottom" ${settings.clock ? "" : "hidden"}><span class="bd-clock bd-ol"></span><span class="bd-today bd-ol"></span></div>`;
+    let down = null;
+    show.addEventListener("pointerdown", (e) => {
+      down = { x: e.clientX, y: e.clientY };
+    });
+    show.addEventListener("pointerup", (e) => {
+      if (!down) return;
+      const dx = e.clientX - down.x;
+      const dy = e.clientY - down.y;
+      down = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+      else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) stop();
+    });
+    show.addEventListener("pointercancel", () => (down = null));
     document.body.append(show);
     tick();
-    showPhoto(current());
-    showTimer = setInterval(() => {
-      step(1);
-      showPhoto(current());
-    }, settings.speed * 1000);
+    showSlide();
+    restartTimer();
     clockTimer = setInterval(tick, 15_000);
   }
 
-  function showPhoto(p) {
-    if (!show || !p) return;
+  function restartTimer() {
+    clearInterval(showTimer);
+    showTimer = setInterval(() => go(1, false), settings.speed * 1000);
+  }
+
+  function go(n, manual = true) {
+    if (!show || !slides.length) return;
+    slideAt = (slideAt + n + slides.length) % slides.length;
+    showSlide(manual);
+    if (manual) restartTimer();
+  }
+
+  const load = (p) =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src(p);
+    });
+
+  async function showSlide(fast = false) {
+    if (!show) return;
+    const seq = ++showSeq;
+    const photos = slides[slideAt].map((i) => list[i]);
+    const imgs = await Promise.all(photos.map(load));
+    if (!show || seq !== showSeq) return;
+    const panes = photos.map((p, k) => ({ p, img: imgs[k] })).filter((x) => x.img);
+    if (!panes.length) return go(1, false);
     const [a, b] = show.querySelectorAll(".bd-layer");
     const front = a.classList.contains("on") ? a : b;
     const back = front === a ? b : a;
-    const img = new Image();
-    img.onload = () => {
-      if (!show) return;
-      back.src = img.src;
-      back.classList.add("on");
-      front.classList.remove("on");
-      // Datoen bildet ble tatt står oppe til venstre.
-      show.querySelector(".bd-cap").textContent = photoDate(p);
-    };
-    img.onerror = () => {
-      step(1);
-    };
-    img.src = src(p);
-    // Hent neste bilde i forkant, så overgangen blir jevn.
-    const next = list[order[(pos + 1) % order.length]];
-    if (next) new Image().src = src(next);
+    back.className = `bd-layer${panes.length > 1 ? " bd-pair" : portrait(panes[0].p) ? " bd-alone" : ""}`;
+    back.replaceChildren(
+      ...panes.map(({ p, img }) => {
+        const pane = document.createElement("div");
+        pane.className = "bd-pane";
+        img.alt = photoDate(p) ? `Bilde tatt ${photoDate(p)}` : "Bilde";
+        const date = document.createElement("span");
+        date.className = "bd-date bd-ol";
+        date.textContent = photoDate(p);
+        pane.append(img, date);
+        return pane;
+      }),
+    );
+    back.classList.toggle("fast", fast);
+    front.classList.toggle("fast", fast);
+    back.classList.add("on");
+    front.classList.remove("on");
+    // Hent neste lysbilde i forkant, så overgangen blir jevn.
+    for (const i of slides[(slideAt + 1) % slides.length]) new Image().src = src(list[i]);
   }
 
   function tick() {
     if (!show) return;
     const now = new Date();
     show.querySelector(".bd-clock").textContent = clockFmt.format(now);
-    const info = opts.info?.() || "";
-    const day = dayFmt.format(now);
-    show.querySelector(".bd-sub").textContent = [day.charAt(0).toUpperCase() + day.slice(1), info].filter(Boolean).join(" · ");
+    const weekday = weekdayFmt.format(now);
+    const date = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}`;
+    const wx = opts.weather?.();
+    const W = window.Weather;
+    show.querySelector(".bd-today").innerHTML = `<span>${esc(weekday.charAt(0).toUpperCase() + weekday.slice(1))} ${date}</span>${
+      wx && W ? `<span class="bd-wx">${esc(W.temp(wx.temp))}${W.icon(wx.symbol, 44, wx.text || "")}</span>` : ""
+    }`;
   }
 
   function stop() {
@@ -279,6 +349,9 @@
     clearInterval(clockTimer);
     show.remove();
     show = null;
+    // Fanen viser bildet vi stoppet på.
+    const first = slides[slideAt]?.[0];
+    if (first !== undefined && order.includes(first)) pos = order.indexOf(first);
     lastTouch = Date.now();
     render();
   }

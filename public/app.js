@@ -2220,7 +2220,7 @@ Bilder.mount(document.getElementById("bd-root"), {
   key: "d",
   idleDefault: 0,
   onSummary: (s) => setStatus("status-bilder", s.configured && s.count ? `${s.count.toLocaleString("nb-NO")} bilder` : "Ikke satt opp"),
-  info: () => (weather?.now ? `${Weather.temp(weather.now.temp)} ${weather.now.text.toLowerCase()}` : ""),
+  weather: () => weather?.now ?? null,
 });
 
 // ---------- Støvsuger (se stovsuger.js) ----------
