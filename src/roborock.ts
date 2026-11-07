@@ -441,10 +441,6 @@ class Vacuum {
   mapWanted = false;
   private wasActive = false;
 
-  /** Kart lages bare for støvsugere med rom. S7 flyttes rundt og har ikke noe fast kart. */
-  get wantsMap(): boolean {
-    return this.state.rooms.length > 0;
-  }
 
   set(patch: Partial<VacuumState>): void {
     Object.assign(this.state, patch);
@@ -1091,14 +1087,14 @@ export class RoborockManager {
   }
 
   /**
-   * Henter kartet hvert 5. sekund mens en støvsuger med rom jobber, én gang når den blir ferdig,
+   * Henter kartet hvert 5. sekund mens en støvsuger jobber, én gang når den blir ferdig,
    * og én gang hvis den viser en ferdig runde uten kart (for eksempel etter omstart).
    */
   private async mapLoop(): Promise<void> {
     if (this.mapBusy || !this.s.userData) return;
     const now = Date.now();
     const v = [...this.vacuums.values()].find(
-      (x) => x.wantsMap && x.state.connected && ((x.state.active && now - x.mapAt >= MAP_ACTIVE_MS) || x.mapWanted || (x.state.finished && !x.mapView && now - x.mapAt > 60_000)),
+      (x) => x.state.connected && ((x.state.active && now - x.mapAt >= MAP_ACTIVE_MS) || x.mapWanted || (x.state.finished && !x.mapView && now - x.mapAt > 60_000)),
     );
     if (!v) return;
     this.mapBusy = true;
