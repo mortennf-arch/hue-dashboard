@@ -52,7 +52,7 @@ export interface Nonces {
   ack: number | null;
 }
 
-interface Header {
+export interface Header {
   version: string;
   seq: number;
   random: number;

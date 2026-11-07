@@ -366,6 +366,11 @@ export async function startWebServer(opts: {
     if (url.pathname === "/api/roborock" || url.pathname.startsWith("/api/roborock/")) {
       if (!roborock) return json(res, 404, { error: "Roborock er skrudd av" });
       if (req.method === "GET" && url.pathname === "/api/roborock") return json(res, 200, roborock.state);
+      const mapPath = url.pathname.match(/^\/api\/roborock\/([\w-]{6,64})\/map$/);
+      if (req.method === "GET" && mapPath) {
+        const m = roborock.map(mapPath[1]);
+        return m ? json(res, 200, m) : json(res, 404, { error: "Ingen kart ennå" });
+      }
       if (req.method !== "POST") return json(res, 405, { error: "Ikke tillatt" });
       const body = await readBody(req);
       try {

@@ -62,6 +62,17 @@
 .rb-now-label { font-size: 0.85em; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .rb-now-state { font-size: var(--rb-now); font-weight: 700; color: var(--accent); letter-spacing: -0.01em; line-height: 1.15; }
 .rb-now-job { font-size: 1.15em; color: var(--text-2); }
+.rb-done .rb-now-state { color: var(--good); }
+
+/* Kartet: fyller plassen mellom «Akkurat nå» og knappene. */
+.rb-map-wrap { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.rb-map { position: relative; flex: 1 1 auto; min-height: 200px; background: var(--bg); border-radius: 16px; overflow: hidden; display: grid; place-items: center; }
+.rb-big .rb-map { min-height: 170px; }
+.rb-map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rb-map-note { padding: 0 16px; text-align: center; }
+.rb-map-key { display: flex; gap: 16px; flex-wrap: wrap; margin: 0; font-size: 0.85em; color: var(--muted); }
+.rb-key-path::before { content: ""; display: inline-block; width: 14px; height: 2px; background: rgba(232, 234, 238, 0.7); vertical-align: middle; margin-right: 6px; }
+.rb-key-dock::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--good); vertical-align: middle; margin-right: 6px; }
 
 .rb-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .rb-btn {
