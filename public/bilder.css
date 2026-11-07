@@ -37,7 +37,10 @@
 /* Lysbildevisningen dekker hele skjermen. Dørklokka og timeren (z-index 10 og høyere) ligger over. */
 .bd-show { position: fixed; inset: 0; z-index: 8; background: #000; cursor: pointer; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
 .bd-layer { position: absolute; inset: 0; display: flex; gap: 6px; background: #111; opacity: 0; transition: opacity 1.2s ease; }
-.bd-layer.fast { transition-duration: 0.35s; }
+/* Når man drar, følger bildet fingeren. Når man slipper, glir det resten av veien. */
+.bd-show.dragging .bd-layer { transition: none; }
+.bd-show.sliding .bd-layer { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0s; }
+.bd-layer { will-change: transform, opacity; }
 .bd-layer.on { opacity: 1; }
 .bd-pane { position: relative; flex: 1 1 0; min-width: 0; overflow: hidden; }
 /* Liggende bilder og par fyller hele flaten. Et stående bilde alene vises helt, på svart. */
