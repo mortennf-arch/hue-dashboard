@@ -218,7 +218,7 @@ En enklere visning med store knapper ligger på `http://<TrueNAS-IP>:8095/kjokke
 
 1. Åpne adressen i Chrome og velg ⋮ > **Legg til på startsiden**. Da får du et eget ikon for kjøkkenvisningen.
 2. Siden går over i fullskjerm første gang noen trykker på den, og igjen etter at den er lastet på nytt.
-3. Hold skjermen på: Innstillinger > Om nettbrettet, trykk 7 ganger på «Byggnummer», og slå så på «Hold skjermen på» under Utvikleralternativer. Det virker så lenge nettbrettet lader.
+3. Hold skjermen på: Innstillinger > Om nettbrettet, trykk 7 ganger på «Byggnummer», og slå så på «Hold skjermen på» under Utvikleralternativer. Det virker så lenge nettbrettet lader. I tillegg ber siden selv nettleseren om å holde skjermen våken og ikke dimme den mens siden er åpen. Det virker bare når Chrome regner adressen som sikker (https, eller flagget «Insecure origins treated as secure» som du satte opp for å installere siden).
 4. Vil du at nettbrettet bare skal vise denne siden, kan du bruke «Skjermfesting» (finnes under Sikkerhet i innstillingene).
 
 Alternativet er appen Fully Kiosk Browser, der grunnversjonen er gratis.
