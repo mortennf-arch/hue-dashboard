@@ -269,7 +269,7 @@
         ${job ? `<span class="rb-now-job">${esc(job)}</span>` : ""}
         ${progress ? `<span class="rb-muted">${esc(progress)}</span>` : ""}
       </div>
-      ${v.rooms.length ? mapSlot(v) : `<div class="rb-grow"></div>`}
+      ${mapSlot(v)}
       <div class="rb-actions">
         ${paused ? btn("start", "Fortsett", { duid: d, icon: ICON.play, cls: "rb-btn rb-primary rb-main" }) : btn("pause", "Pause", { duid: d, icon: ICON.pause, cls: "rb-btn rb-primary rb-main" })}
         ${paused ? btn("stop", "Avslutt", { duid: d, icon: ICON.stop }) : ""}
@@ -500,7 +500,7 @@
 
   function vacuumCard(v) {
     const working = v.connected && (v.active || v.state === 10);
-    const done = !working && v.connected && v.rooms.length > 0 && v.finished && Date.now() - Date.parse(v.finished.at) < FINISHED_MS;
+    const done = !working && v.connected && v.finished && Date.now() - Date.parse(v.finished.at) < FINISHED_MS;
     const body = !v.connected ? offlineView(v) : working ? workingView(v) : done ? finishedView(v) : setupView(v);
     return `<article class="rb-card ${working ? "rb-working" : ""} ${v.rooms.length ? "rb-wide" : ""}" aria-label="${esc(v.name)}">
       ${head(v)}
