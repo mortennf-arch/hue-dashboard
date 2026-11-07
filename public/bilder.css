@@ -38,13 +38,13 @@
 .bd-show { position: fixed; inset: 0; z-index: 8; background: #000; cursor: pointer; overflow: hidden; }
 .bd-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 1.2s ease; }
 .bd-layer.on { opacity: 1; }
-.bd-over { position: absolute; left: 28px; bottom: 28px; display: flex; flex-direction: column; gap: 2px; padding: 14px 20px; border-radius: 18px; background: rgba(0, 0, 0, 0.55); color: #fff; }
+/* Én linje nederst: klokka stor til venstre, dag og vær bortover etter den. */
+.bd-over { position: absolute; left: 28px; bottom: 24px; display: flex; align-items: baseline; gap: 20px; max-width: calc(100% - 56px); padding: 10px 22px; border-radius: 18px; background: rgba(0, 0, 0, 0.55); color: #fff; }
 .bd-over[hidden] { display: none; }
-.bd-album { font-size: clamp(18px, 2.4vw, 28px); font-weight: 700; color: var(--accent, #F5B544); margin-bottom: 4px; }
-.bd-album:empty { display: none; }
-.bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-.bd-sub { font-size: clamp(15px, 1.8vw, 20px); color: #E4E7EC; }
-.bd-cap { position: absolute; right: 24px; bottom: 24px; padding: 8px 16px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 18px; font-weight: 600; }
+.bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; flex: none; }
+.bd-sub { font-size: clamp(16px, 2.2vw, 26px); color: #E4E7EC; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Datoen bildet ble tatt, oppe til venstre. */
+.bd-cap { position: absolute; left: 28px; top: 24px; padding: 8px 16px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: clamp(16px, 1.8vw, 20px); font-weight: 600; }
 .bd-cap:empty, .bd-cap[hidden] { display: none; }
 
 @media (max-width: 1000px) {

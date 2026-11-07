@@ -184,7 +184,7 @@
         <div class="bd-seg" role="group" aria-labelledby="bd-speed-h">${SPEED.map(([v, l]) => chip(v, l, settings.speed === v, "speed")).join("")}</div>
         <div class="bd-toggles">
           <button type="button" class="bd-toggle" data-act="shuffle" aria-pressed="${settings.shuffle}"><strong>Tilfeldig rekkefølge</strong><small>${settings.shuffle ? "Blander bildene" : "Eldste først"}</small></button>
-          <button type="button" class="bd-toggle" data-act="clock" aria-pressed="${settings.clock}"><strong>Klokke og vær</strong><small>Sammen med mappenavnet over bildet</small></button>
+          <button type="button" class="bd-toggle" data-act="clock" aria-pressed="${settings.clock}"><strong>Klokke og vær</strong><small>Nederst på bildet i lysbildevisningen</small></button>
         </div>
         ${summary.skipped ? `<p class="bd-note">${summary.skipped === 1 ? "1 bilde" : `${summary.skipped} bilder`} i HEIC- eller RAW-format vises ikke.</p>` : ""}
       </section>`;
@@ -228,8 +228,8 @@
     show.setAttribute("role", "dialog");
     show.setAttribute("aria-label", "Lysbildevisning. Trykk for å lukke.");
     show.innerHTML = `<img class="bd-layer" alt=""><img class="bd-layer" alt="">
-      <div class="bd-over" ${settings.clock ? "" : "hidden"}><span class="bd-album"></span><span class="bd-clock"></span><span class="bd-sub"></span></div>
-      <span class="bd-cap" ${settings.clock ? "hidden" : ""}></span>`;
+      <span class="bd-cap"></span>
+      <div class="bd-over" ${settings.clock ? "" : "hidden"}><span class="bd-clock"></span><span class="bd-sub"></span></div>`;
     show.addEventListener("click", stop);
     document.body.append(show);
     tick();
@@ -252,9 +252,8 @@
       back.src = img.src;
       back.classList.add("on");
       front.classList.remove("on");
-      // Mappenavnet står øverst i boksen med klokka. Uten klokke står det i hjørnet.
-      show.querySelector(".bd-album").textContent = caption(p);
-      show.querySelector(".bd-cap").textContent = caption(p);
+      // Datoen bildet ble tatt står oppe til venstre.
+      show.querySelector(".bd-cap").textContent = photoDate(p);
     };
     img.onerror = () => {
       step(1);
