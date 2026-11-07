@@ -164,13 +164,15 @@ Kalenderen hentes to ganger i døgnet og lagres i `tommekalender.json` i dataset
 
 ## Roborock-støvsugere (valgfritt)
 
-Fanen **Støvsuger** viser begge støvsugerne side om side. Mens en støvsuger står i laderen, velger du rom (gult = valgt, ingen valgt = hele huset), om den skal støvsuge, vaske eller begge deler, sugestyrke, mengde vann og én eller to ganger, og trykker Start. Mens den jobber, står det stort hva den holder på med akkurat nå, for eksempel «Støvsuger», «Vasker gulvet», «Vasker moppen», «Kjører hjem» eller «Tørker moppen», med knapper for pause, avslutt, hjem til laderen og «Finn» (den piper). Batteriet vises med et ikon. Under «Slitedeler og statistikk» står slitedeler og totaler. Valgene huskes per støvsuger på hver skjerm. Fanen finnes både i dashbordet og på kjøkkennettbrettet.
+Fanen **Støvsuger** viser begge støvsugerne side om side. Mens en støvsuger står i laderen, velger du rom (gult = valgt, ingen valgt = hele huset), om den skal støvsuge, vaske eller begge deler, sugestyrke, mengde vann og én eller to ganger, og trykker Start. Mens den jobber, står det stort hva den holder på med akkurat nå, for eksempel «Støvsuger», «Vasker gulvet», «Vasker moppen», «Kjører hjem» eller «Tørker moppen», med knapper for pause, avslutt, hjem til laderen og «Finn» (den piper). Støvsugere med rom (Qrevo) viser også et kart under «Akkurat nå», med rommene, hvor støvsugeren er, veien den har kjørt og laderen. Kartet oppdateres hvert 5. sekund. Når runden er ferdig, står «Ferdig kl. …» og kartet i to timer, eller til du trykker «Ny runde». Batteriet vises med et ikon. Under «Slitedeler og statistikk» står slitedeler og totaler. Valgene huskes per støvsuger på hver skjerm. Fanen finnes både i dashbordet og på kjøkkennettbrettet.
 
 Du trenger ikke endre noe i TrueNAS:
 
 1. Åpne fanen **Støvsuger** og skriv e-posten du bruker i Roborock-appen. Trykk **Send kode**.
 2. Skriv inn koden du får på e-post, og trykk **Logg inn**.
 3. Dashbordet henter støvsugerne, rommene og en lokal nøkkel for hver støvsuger fra Roborock, og leter etter dem på hjemmenettet. Etter det snakker det direkte med støvsugerne, uten å gå via Roborocks sky. Alt lagres i `roborock.json` i datasettet.
+
+Kartet sender ikke støvsugeren over hjemmenettet, så det hentes fra Roborocks sky (MQTT, port 8883) mens den jobber. Loggen viser `Roborock: <navn>: hentet kartet fra skyen` første gang, eller `fikk ikke kartet: ...` hvis noe er galt. Alt annet går fortsatt lokalt.
 
 Roborock har ikke noe offisielt API. Dette gjør det samme som Home Assistant, og kan slutte å virke hvis Roborock endrer noe.
 

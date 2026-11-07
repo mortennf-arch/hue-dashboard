@@ -3,7 +3,8 @@
 //
 // Hver støvsuger har sitt kort. Når den står stille, velger man rom (gule = valgt, som rommene i
 // Musikk), hva den skal gjøre, sugestyrke, vann og antall ganger, og trykker Start. Mens den
-// jobber, viser kortet stort hva den holder på med akkurat nå.
+// jobber, viser kortet stort hva den holder på med akkurat nå, og kartet med hvor den er.
+// Når den er ferdig, vises runden og kartet i to timer, eller til man trykker «Ny runde».
 
 (() => {
   const MODES = [
@@ -38,13 +39,17 @@
     stop: svg('<rect x="6" y="6" width="12" height="12" rx="1.5"/>'),
     robot: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3"/>', 28),
     check: svg('<path d="M5 12l5 5 9-10"/>', 20),
+    again: svg('<path d="M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4"/>'),
   };
+  const FINISHED_MS = 2 * 60 * 60 * 1000;
 
   let root = null;
   let state = null;
   let busy = "";
   let message = { text: "", bad: false };
   let deferred = false;
+  /** Kartene, per støvsuger: siste versjon fra serveren og et lerret som flyttes inn i kortet ved hver tegning. */
+  const maps = new Map();
 
   // ---------- Valgene, husket i nettleseren per støvsuger ----------
 
@@ -142,6 +147,8 @@
       }
       case "find":
         return cmd({ action: "find" }, "Den piper nå, så du hører hvor den er.");
+      case "dismiss":
+        return cmd({ action: "dismiss" });
       case "start":
       case "pause":
       case "dock":
@@ -262,7 +269,7 @@
         ${job ? `<span class="rb-now-job">${esc(job)}</span>` : ""}
         ${progress ? `<span class="rb-muted">${esc(progress)}</span>` : ""}
       </div>
-      <div class="rb-grow"></div>
+      ${v.rooms.length ? mapSlot(v) : `<div class="rb-grow"></div>`}
       <div class="rb-actions">
         ${paused ? btn("start", "Fortsett", { duid: d, icon: ICON.play, cls: "rb-btn rb-primary rb-main" }) : btn("pause", "Pause", { duid: d, icon: ICON.pause, cls: "rb-btn rb-primary rb-main" })}
         ${paused ? btn("stop", "Avslutt", { duid: d, icon: ICON.stop }) : ""}
@@ -270,6 +277,156 @@
         ${btn("find", "Finn", { duid: d, icon: ICON.find })}
       </div>`;
   }
+
+  /** Kortet etter en runde: når den ble ferdig, hva den gjorde, og kartet. «Ny runde» går tilbake til romvalget. */
+  function finishedView(v) {
+    const d = v.duid;
+    const f = v.finished;
+    const at = new Date(f.at).toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+    const job = f.job ? `${modeText(f.job.mode)} · ${f.job.rooms.length ? joinNames(f.job.rooms) : "hele huset"}${f.job.repeat > 1 ? " · to ganger" : ""}` : "";
+    const facts = [f.minutes !== null ? `${f.minutes} min` : "", f.area !== null ? `${String(f.area).replace(".", ",")} m²` : ""].filter(Boolean).join(" · ");
+    return `<div class="rb-now rb-done">
+        <span class="rb-now-label">Siste runde</span>
+        <strong class="rb-now-state">Ferdig kl. ${esc(at)}</strong>
+        ${job ? `<span class="rb-now-job">${esc(job)}</span>` : ""}
+        ${facts ? `<span class="rb-muted">${esc(facts)}</span>` : ""}
+      </div>
+      ${mapSlot(v)}
+      <div class="rb-actions">
+        ${btn("dismiss", "Ny runde", { duid: d, icon: ICON.again, cls: "rb-btn rb-primary rb-main" })}
+        ${v.docked ? "" : btn("dock", "Hjem", { duid: d, icon: ICON.home })}
+        ${btn("find", "Finn", { duid: d, icon: ICON.find })}
+      </div>`;
+  }
+
+  // ---------- Kartet ----------
+
+  /** Plassen til kartet. Lerretet settes inn etter at kortet er tegnet. */
+  function mapSlot(v) {
+    const m = maps.get(v.duid);
+    const note = m?.data ? "" : v.mapProblem ? `Kartet: ${v.mapProblem}` : "Henter kartet …";
+    return `<div class="rb-map-wrap">
+        <div class="rb-map" data-map="${esc(v.duid)}">${note ? `<p class="rb-muted rb-map-note">${esc(note)}</p>` : ""}</div>
+        ${m?.data ? `<p class="rb-map-key"><span class="rb-key-path">Veien den har kjørt</span><span class="rb-key-dock">Laderen</span></p>` : ""}
+      </div>`;
+  }
+
+  /** Henter kartet når serveren har et nyere, og setter lerretene inn i kortene. */
+  function placeMaps() {
+    for (const slot of root.querySelectorAll("[data-map]")) {
+      const duid = slot.dataset.map;
+      const v = vacuum(duid);
+      let m = maps.get(duid);
+      if (!m) {
+        m = { version: 0, data: null, loading: false, canvas: document.createElement("canvas"), img: null };
+        m.canvas.className = "rb-map-canvas";
+        m.canvas.setAttribute("role", "img");
+        m.canvas.setAttribute("aria-label", "Kart over støvsugeren");
+        // Tegn på nytt når plassen endrer seg, også når fanen blir synlig.
+        if ("ResizeObserver" in window) new ResizeObserver(() => drawMap(duid)).observe(m.canvas);
+        maps.set(duid, m);
+      }
+      if (m.data) {
+        slot.innerHTML = "";
+        slot.appendChild(m.canvas);
+        drawMap(duid);
+      }
+      if (v && v.map > m.version && !m.loading) loadMap(duid, v.map);
+    }
+  }
+
+  async function loadMap(duid, version) {
+    const m = maps.get(duid);
+    m.loading = true;
+    try {
+      const res = await fetch(`/api/roborock/${encodeURIComponent(duid)}/map`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const img = new Image();
+      img.src = `data:image/png;base64,${data.view.png}`;
+      await img.decode();
+      const first = !m.data;
+      Object.assign(m, { data, img, version: data.version ?? version });
+      if (first) render(true);
+      else drawMap(duid);
+    } catch {
+      // prøver igjen ved neste oppdatering
+    } finally {
+      m.loading = false;
+    }
+  }
+
+  function drawMap(duid) {
+    const m = maps.get(duid);
+    const c = m?.canvas;
+    if (!m?.data || !c.isConnected) return;
+    const box = c.parentElement.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = Math.round(box.width * dpr);
+    c.height = Math.round(box.height * dpr);
+    const ctx = c.getContext("2d");
+    const { view, rooms } = m.data;
+    const pad = 8 * dpr;
+    const scale = Math.min((c.width - pad * 2) / view.w, (c.height - pad * 2) / view.h);
+    const ox = (c.width - view.w * scale) / 2;
+    const oy = (c.height - view.h * scale) / 2;
+    const X = (x) => ox + x * scale;
+    const Y = (y) => oy + y * scale;
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(m.img, ox, oy, view.w * scale, view.h * scale);
+    // Veien den har kjørt.
+    if (view.path.length >= 4) {
+      ctx.beginPath();
+      ctx.moveTo(X(view.path[0]), Y(view.path[1]));
+      for (let i = 2; i < view.path.length; i += 2) ctx.lineTo(X(view.path[i]), Y(view.path[i + 1]));
+      ctx.strokeStyle = "rgba(232,234,238,0.55)";
+      ctx.lineWidth = Math.max(1, 1.2 * dpr);
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+    // Romnavnene.
+    const names = new Map(rooms.map((r) => [r.segment, r.name]));
+    ctx.font = `600 ${Math.round(14 * dpr)}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const r of view.rooms) {
+      const name = names.get(r.segment);
+      if (!name) continue;
+      ctx.lineWidth = 3 * dpr;
+      ctx.strokeStyle = "rgba(15,17,21,0.75)";
+      ctx.strokeText(name, X(r.x), Y(r.y));
+      ctx.fillStyle = "#E8EAEE";
+      ctx.fillText(name, X(r.x), Y(r.y));
+    }
+    // Laderen: grønn firkant.
+    if (view.charger) {
+      const s = 7 * dpr;
+      ctx.fillStyle = "#4CC38A";
+      ctx.beginPath();
+      ctx.roundRect(X(view.charger.x) - s, Y(view.charger.y) - s, s * 2, s * 2, 2 * dpr);
+      ctx.fill();
+    }
+    // Støvsugeren: hvit sirkel med en strek i kjøreretningen.
+    if (view.robot) {
+      const r = 8 * dpr;
+      const x = X(view.robot.x);
+      const y = Y(view.robot.y);
+      ctx.fillStyle = "#E8EAEE";
+      ctx.strokeStyle = "#0F1115";
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#0F1115";
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
 
   /** Kortet når den står stille: velg rom og hvordan, og start. */
   function setupView(v) {
@@ -343,7 +500,8 @@
 
   function vacuumCard(v) {
     const working = v.connected && (v.active || v.state === 10);
-    const body = !v.connected ? offlineView(v) : working ? workingView(v) : setupView(v);
+    const done = !working && v.connected && v.rooms.length > 0 && v.finished && Date.now() - Date.parse(v.finished.at) < FINISHED_MS;
+    const body = !v.connected ? offlineView(v) : working ? workingView(v) : done ? finishedView(v) : setupView(v);
     return `<article class="rb-card ${working ? "rb-working" : ""} ${v.rooms.length ? "rb-wide" : ""}" aria-label="${esc(v.name)}">
       ${head(v)}
       ${v.error ? `<p class="rb-alert">${esc(v.error)}</p>` : ""}
@@ -376,6 +534,7 @@
     }
     if (message.text && message.text !== state?.reason) html = `<p class="${message.bad ? "rb-bad" : "rb-muted"} rb-msg" role="status">${esc(message.text)}</p>` + html;
     root.innerHTML = html;
+    placeMaps();
     for (const x of root.querySelectorAll("details[data-duid]")) if (open.has(x.dataset.duid)) x.open = true;
     if (focusId) {
       const el = document.getElementById(focusId);

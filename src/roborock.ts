@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.js";
-import { LocalConnection, scanForVacuums, type Version } from "./roborock-protocol.js";
+import { decodeMapPayload, parseRRMap, renderMap, securityData, type MapView } from "./roborock-map.js";
+import { MqttClient } from "./roborock-mqtt.js";
+import { decrypt, encodeData, parseBody, LocalConnection, scanForVacuums, type Version } from "./roborock-protocol.js";
 
 /**
  * Roborock-støvsugere i dashbordet.
@@ -24,13 +26,15 @@ const storePath = path.join(dataDir, "roborock.json");
 const POLL_MS = 15_000;
 const POLL_ACTIVE_MS = 5_000;
 const SLOW_MS = 30 * 60_000;
+const MAP_ACTIVE_MS = 5_000;
+export const FINISHED_MS = 2 * 60 * 60_000;
 
 interface RRiot {
   u: string;
   s: string;
   h: string;
   k: string;
-  r: { a: string };
+  r: { a: string; m?: string };
 }
 
 interface StoredDevice {
@@ -81,6 +85,11 @@ export interface VacuumState {
   canMop: boolean;
   consumables: { key: string; name: string; percent: number; hoursLeft: number }[];
   totals: { hours: number; area: number; count: number } | null;
+  /** Øker hver gang det kommer et nytt kart. 0 = ikke noe kart. Kartet hentes fra /api/roborock/<duid>/map. */
+  map: number;
+  mapProblem: string;
+  /** Siste runde, vist sammen med kartet i to timer etter at den er ferdig. */
+  finished: { at: string; minutes: number | null; area: number | null; job: VacuumState["job"] } | null;
   updated: string | null;
 }
 
@@ -419,8 +428,22 @@ class Vacuum {
       canMop: false,
       consumables: [],
       totals: null,
+      map: 0,
+      mapProblem: "",
+      finished: null,
       updated: null,
     };
+  }
+
+  mapView: MapView | null = null;
+  mapAt = 0;
+  /** Hent kartet én gang til, for eksempel når den nettopp ble ferdig. */
+  mapWanted = false;
+  private wasActive = false;
+
+  /** Kart lages bare for støvsugere med rom. S7 flyttes rundt og har ikke noe fast kart. */
+  get wantsMap(): boolean {
+    return this.state.rooms.length > 0;
   }
 
   set(patch: Partial<VacuumState>): void {
@@ -486,6 +509,19 @@ class Vacuum {
       patch.docked = DOCKED.has(st);
       // Samme ord som Roborock-appen bruker der det finnes et bedre ord enn selve tilstanden.
       patch.stateText = patch.docked && this.dry === 1 ? "Tørker moppen" : (st === 8 && battery === 100) || st === 100 ? "Ferdig ladet" : (STATES[st] ?? `Tilstand ${st}`);
+      // Moppevask i laderen etter runden hører til runden som er ferdig.
+      const afterRun = (st === 23 || st === 25) && this.state.finished !== null;
+      if (patch.active && !afterRun) {
+        this.wasActive = true;
+        if (this.state.finished) patch.finished = null;
+      } else if (this.wasActive && patch.docked) {
+        // Ferdig og hjemme: husk runden, og hent kartet en siste gang.
+        this.wasActive = false;
+        const minutes = s.clean_time !== undefined ? Math.round(Number(s.clean_time) / 60) : this.state.cleanMinutes;
+        const area = s.clean_area !== undefined ? Math.round(Number(s.clean_area) / 100_000) / 10 : this.state.cleanArea;
+        patch.finished = { at: new Date().toISOString(), minutes, area, job: this.state.job };
+        this.mapWanted = true;
+      }
       // Når den er hjemme igjen og ferdig, glemmer vi jobben.
       if (this.state.job && patch.docked && !patch.active && st !== 22 && Date.now() - Date.parse(this.state.job.at) > 60_000) patch.job = null;
     }
@@ -509,6 +545,7 @@ class Vacuum {
       if (row && typeof row === "object") this.applyStatus(row);
       this.failures = 0;
       if (!this.state.connected || this.state.problem) this.set({ connected: true, problem: "" });
+      if (this.state.finished && Date.now() - Date.parse(this.state.finished.at) > FINISHED_MS) this.set({ finished: null });
       if (Date.now() >= this.slowAt) {
         this.slowAt = Date.now() + SLOW_MS;
         await this.refreshSlow(conn).catch(() => {});
@@ -587,6 +624,12 @@ class Vacuum {
     this.changed();
   }
 
+  setMap(view: MapView): void {
+    this.mapView = view;
+    this.mapAt = Date.now();
+    this.set({ map: this.state.map + 1, mapProblem: "" });
+  }
+
   setJob(job: VacuumState["job"]): void {
     this.set({ job });
   }
@@ -616,6 +659,156 @@ class Vacuum {
   }
 }
 
+const md5hex = (s: string) => crypto.createHash("md5").update(s, "utf8").digest("hex");
+
+/**
+ * Kartet må hentes via Roborocks sky (MQTT), for støvsugeren sender det ikke over hjemmenettet.
+ * Samme fremgangsmåte som python-roborock: get_map_v1 med en engangsnøkkel, og svaret kommer som
+ * protokoll 301 (eventuelt delt i flere 300-meldinger), kryptert med den nøkkelen og gzip-et.
+ */
+class CloudMap {
+  private client: MqttClient | null = null;
+  private connecting: Promise<MqttClient> | null = null;
+  private user = "";
+  private pending = new Map<string, { id: number; endpoint: string; nonce: Buffer; parts: Map<string, Map<number, [boolean, Buffer]>>; resolve: (b: Buffer) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private idleTimer: NodeJS.Timeout | null = null;
+
+  constructor(private readonly rriot: () => RRiot | null, private readonly keyFor: (duid: string) => string | null) {}
+
+  private async connect(): Promise<MqttClient> {
+    if (this.client?.ready) return this.client;
+    if (this.connecting) return this.connecting;
+    const r = this.rriot();
+    if (!r?.r?.m) throw new Error("Mangler adressen til Roborocks sky. Trykk «Hent støvsugere og rom på nytt».");
+    const url = new URL(r.r.m);
+    if (!TEST_URL && !(url.hostname === "roborock.com" || url.hostname.endsWith(".roborock.com"))) throw new Error("Ukjent adresse til Roborocks sky");
+    this.user = md5hex(`${r.u}:${r.k}`).slice(2, 10);
+    const client = new MqttClient(
+      { host: url.hostname, port: Number(url.port) || 8883, tls: url.protocol === "ssl:" || url.protocol === "mqtts:", username: this.user, password: md5hex(`${r.s}:${r.k}`).slice(16), clientId: `hue-dashboard-${crypto.randomBytes(4).toString("hex")}`, keepAlive: 45 },
+      (topic, payload) => this.onMessage(topic, payload),
+      () => {
+        if (this.client === client) this.client = null;
+      },
+    );
+    this.connecting = client
+      .connect()
+      .then(() => {
+        this.client = client;
+        return client;
+      })
+      .finally(() => {
+        this.connecting = null;
+      });
+    return this.connecting;
+  }
+
+  /** Henter kartet og gir tilbake den utpakkede kartfila. */
+  async fetch(duid: string): Promise<Buffer> {
+    const key = this.keyFor(duid);
+    const r = this.rriot();
+    if (!key || !r) throw new Error("Mangler nøkkel");
+    if (this.pending.has(duid)) throw new Error("Henter allerede kartet");
+    const client = await this.connect();
+    client.subscribe(`rr/m/o/${r.u}/${this.user}/${duid}`);
+    this.keepOpen();
+    const sec = securityData(r.k);
+    const id = crypto.randomInt(10000, 32767);
+    const ts = Math.floor(Date.now() / 1000);
+    const inner = { id, method: "get_map_v1", params: [], security: { endpoint: sec.endpoint, nonce: sec.nonce.toString("hex") } };
+    const payload = Buffer.from(JSON.stringify({ dps: { "101": JSON.stringify(inner) }, t: ts }), "utf8");
+    const frame = encodeData({ version: "1.0", seq: crypto.randomInt(1, 100000), random: crypto.randomInt(10000, 99999), timestamp: ts, protocol: 101 }, payload, key, { connect: 0, ack: null }).subarray(4);
+    return new Promise<Buffer>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(duid);
+        reject(new Error("Fikk ikke kartet fra Roborocks sky innen 20 sekunder"));
+      }, 20_000);
+      this.pending.set(duid, { id, endpoint: sec.endpoint, nonce: sec.nonce, parts: new Map(), resolve, reject, timer });
+      try {
+        client.publish(`rr/m/i/${r.u}/${this.user}/${duid}`, frame);
+      } catch (e) {
+        clearTimeout(timer);
+        this.pending.delete(duid);
+        reject(e as Error);
+      }
+    });
+  }
+
+  private onMessage(topic: string, data: Buffer): void {
+    const duid = topic.split("/").pop() ?? "";
+    const p = this.pending.get(duid);
+    const key = this.keyFor(duid);
+    if (!p || !key) return;
+    let off = 0;
+    while (off + 23 <= data.length) {
+      const len = data.readUInt16BE(off + 17);
+      const body = data.subarray(off, off + 23 + len);
+      off += 23 + len;
+      let f;
+      try {
+        f = parseBody(body);
+      } catch {
+        break;
+      }
+      if (f.kind !== "data") continue;
+      let plain: Buffer;
+      try {
+        plain = decrypt(f.payload, key, f, { connect: 0, ack: null });
+      } catch {
+        continue;
+      }
+      if (f.protocol === 102) {
+        // Svaret på selve forespørselen. «ok» betyr at kartet kommer; en feil gir vi videre.
+        try {
+          const inner = JSON.parse(JSON.parse(plain.toString("utf8")).dps["102"]);
+          if (inner.id === p.id && inner.error) this.finish(duid, new Error(`Støvsugeren svarte: ${inner.error.message ?? JSON.stringify(inner.error)}`));
+        } catch {}
+        continue;
+      }
+      if (f.protocol !== 300 && f.protocol !== 301) continue;
+      const k = `${f.random}:${f.timestamp}`;
+      const parts = p.parts.get(k) ?? new Map<number, [boolean, Buffer]>();
+      parts.set(f.seq, [f.protocol === 301, plain]);
+      p.parts.set(k, parts);
+      const seqs = [...parts.keys()].sort((a, b) => a - b);
+      const last = parts.get(seqs[seqs.length - 1])!;
+      const complete = last[0] && seqs.every((s, i) => s === seqs[0] + i);
+      if (!complete) continue;
+      const whole = Buffer.concat(seqs.map((s) => parts.get(s)![1]));
+      try {
+        const res = decodeMapPayload(whole, p.endpoint, p.nonce);
+        if (!res) continue;
+        this.finish(duid, null, res.data);
+      } catch (e) {
+        this.finish(duid, new Error(`Klarte ikke å pakke ut kartet: ${(e as Error).message}`));
+      }
+    }
+  }
+
+  private finish(duid: string, err: Error | null, data?: Buffer): void {
+    const p = this.pending.get(duid);
+    if (!p) return;
+    clearTimeout(p.timer);
+    this.pending.delete(duid);
+    if (err) p.reject(err);
+    else p.resolve(data!);
+  }
+
+  /** Forbindelsen til skyen lukkes når ingen har bedt om kart på ti minutter. */
+  private keepOpen(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.close(), 10 * 60_000);
+    this.idleTimer.unref?.();
+  }
+
+  close(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    this.client?.close();
+    this.client = null;
+    for (const duid of [...this.pending.keys()]) this.finish(duid, new Error("Lukket"));
+  }
+}
+
 export class RoborockManager {
   private s: Stored;
   private vacuums = new Map<string, Vacuum>();
@@ -624,6 +817,13 @@ export class RoborockManager {
   private scanning = false;
   private scanAgainAt = 0;
   private saveTimer: NodeJS.Timeout | null = null;
+  private cloudMap = new CloudMap(
+    () => this.s.userData?.rriot ?? null,
+    (duid) => this.s.devices.find((d) => d.duid === duid)?.localKey ?? null,
+  );
+  private mapTimer: NodeJS.Timeout | null = null;
+  private mapBusy = false;
+  private mapFailLogged = new Set<string>();
 
   constructor(
     private readonly onChange: (state: RoborockState) => void,
@@ -647,6 +847,8 @@ export class RoborockManager {
   }
 
   async start(): Promise<void> {
+    this.mapTimer = setInterval(() => this.mapLoop().catch(() => {}), 1000);
+    this.mapTimer.unref?.();
     try {
       const saved = JSON.parse(await readFile(storePath, "utf8")) as Partial<Stored>;
       this.s = { ...this.s, ...saved, email: saved.email || this.s.email };
@@ -799,6 +1001,7 @@ export class RoborockManager {
   async logout(): Promise<void> {
     for (const v of this.vacuums.values()) v.stop();
     this.vacuums.clear();
+    this.cloudMap.close();
     this.s = { ...this.s, userData: null, devices: [], rooms: [], fetched: null };
     await this.save();
     this.set("login");
@@ -835,6 +1038,10 @@ export class RoborockManager {
         return;
       case "find":
         await v.command("find_me");
+        return;
+      case "dismiss":
+        // «Ny runde»: skjul den ferdige runden og gå tilbake til romvalget.
+        v.set({ finished: null });
         return;
       case "clean": {
         // Hele jobben på én gang: hva (støvsug/vask/begge), styrke, vann, rom og antall ganger.
@@ -883,8 +1090,50 @@ export class RoborockManager {
     }
   }
 
+  /**
+   * Henter kartet hvert 5. sekund mens en støvsuger med rom jobber, én gang når den blir ferdig,
+   * og én gang hvis den viser en ferdig runde uten kart (for eksempel etter omstart).
+   */
+  private async mapLoop(): Promise<void> {
+    if (this.mapBusy || !this.s.userData) return;
+    const now = Date.now();
+    const v = [...this.vacuums.values()].find(
+      (x) => x.wantsMap && x.state.connected && ((x.state.active && now - x.mapAt >= MAP_ACTIVE_MS) || x.mapWanted || (x.state.finished && !x.mapView && now - x.mapAt > 60_000)),
+    );
+    if (!v) return;
+    this.mapBusy = true;
+    v.mapWanted = false;
+    v.mapAt = now;
+    try {
+      const raw = await this.cloudMap.fetch(v.dev.duid);
+      const view = renderMap(parseRRMap(raw));
+      if (!v.mapView || this.mapFailLogged.has(v.dev.duid)) console.log(`Roborock: ${v.dev.name}: hentet kartet fra skyen (${view.w}×${view.h}, ${view.rooms.length} rom)`);
+      v.setMap(view);
+      this.mapFailLogged.delete(v.dev.duid);
+    } catch (err) {
+      const msg = (err as Error).message;
+      v.set({ mapProblem: msg });
+      if (!this.mapFailLogged.has(v.dev.duid)) {
+        this.mapFailLogged.add(v.dev.duid);
+        console.error(`Roborock: ${v.dev.name}: fikk ikke kartet: ${msg}`);
+      }
+      // Ikke mas på skyen når det feiler.
+      v.mapAt = now + 25_000;
+    } finally {
+      this.mapBusy = false;
+    }
+  }
+
+  map(duid: string): { view: MapView; rooms: VacuumState["rooms"]; version: number } | null {
+    const v = this.vacuums.get(duid);
+    if (!v?.mapView) return null;
+    return { view: v.mapView, rooms: v.state.rooms, version: v.state.map };
+  }
+
   stop(): void {
     for (const v of this.vacuums.values()) v.stop();
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    if (this.mapTimer) clearInterval(this.mapTimer);
+    this.cloudMap.close();
   }
 }
