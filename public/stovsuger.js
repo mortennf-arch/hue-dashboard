@@ -120,6 +120,8 @@
   const vacuum = (duid) => state?.vacuums?.find((v) => v.duid === duid);
 
   function onClick(e) {
+    const slot = e.target.closest("[data-map]");
+    if (slot) return openZoom(slot.dataset.map);
     const b = e.target.closest("button[data-act]");
     if (!b || b.disabled) return;
     const { act, duid } = b.dataset;
@@ -307,9 +309,50 @@
     const note = m?.data ? "" : v.mapProblem ? `Kartet: ${v.mapProblem}` : "Henter kartet …";
     return `<div class="rb-map-wrap">
         <div class="rb-map" data-map="${esc(v.duid)}">${note ? `<p class="rb-muted rb-map-note">${esc(note)}</p>` : ""}</div>
-        ${m?.data ? `<p class="rb-map-key"><span class="rb-key-path">Veien den har kjørt</span><span class="rb-key-dock">Laderen</span></p>` : ""}
+        ${m?.data ? `<p class="rb-map-key"><span class="rb-key-path">Veien den har kjørt</span><span class="rb-key-dock">Laderen</span><span>Trykk på kartet for fullskjerm</span></p>` : ""}
       </div>`;
   }
+
+  // ---------- Kartet i fullskjerm ----------
+
+  let zoom = null;
+
+  function openZoom(duid) {
+    const m = maps.get(duid);
+    if (!m?.data) return;
+    closeZoom();
+    const el = document.createElement("div");
+    el.className = "rb-zoom";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    el.setAttribute("aria-label", "Kartet i fullskjerm");
+    el.innerHTML = `<header class="rb-zoom-head"><span class="rb-zoom-title"></span><button type="button" class="rb-btn rb-zoom-close">Lukk</button></header><div class="rb-zoom-map"><canvas role="img" aria-label="Kart over støvsugeren"></canvas></div>`;
+    document.body.appendChild(el);
+    zoom = { duid, el, canvas: el.querySelector("canvas") };
+    el.addEventListener("click", closeZoom);
+    if ("ResizeObserver" in window) new ResizeObserver(() => zoom && drawInto(maps.get(zoom.duid), zoom.canvas, 1.5)).observe(zoom.canvas);
+    updateZoom();
+    el.querySelector(".rb-zoom-close").focus();
+  }
+
+  function closeZoom() {
+    if (!zoom) return;
+    zoom.el.remove();
+    zoom = null;
+  }
+
+  /** Navn og status øverst, og nytt kart når det kommer. */
+  function updateZoom() {
+    if (!zoom) return;
+    const v = vacuum(zoom.duid);
+    if (!v) return closeZoom();
+    zoom.el.querySelector(".rb-zoom-title").textContent = `${v.name} · ${v.connected ? v.stateText || "…" : "Ikke tilkoblet"}`;
+    drawInto(maps.get(zoom.duid), zoom.canvas, 1.5);
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeZoom();
+  });
 
   /** Henter kartet når serveren har et nyere, og setter lerretene inn i kortene. */
   function placeMaps() {
@@ -358,13 +401,18 @@
 
   function drawMap(duid) {
     const m = maps.get(duid);
-    const c = m?.canvas;
+    if (m) drawInto(m, m.canvas, 1);
+    if (zoom && zoom.duid === duid) drawInto(m, zoom.canvas, 1.5);
+  }
+
+  /** Tegner kartet på et lerret. k gjør tekst, støvsuger og lader større i fullskjerm. */
+  function drawInto(m, c, k) {
     if (!m?.data || !c.isConnected) return;
     const box = c.parentElement.getBoundingClientRect();
     if (!box.width || !box.height) return;
-    const dpr = window.devicePixelRatio || 1;
-    c.width = Math.round(box.width * dpr);
-    c.height = Math.round(box.height * dpr);
+    const dpr = (window.devicePixelRatio || 1) * k;
+    c.width = Math.round((box.width * dpr) / k);
+    c.height = Math.round((box.height * dpr) / k);
     const ctx = c.getContext("2d");
     const { view, rooms } = m.data;
     const pad = 8 * dpr;
@@ -535,6 +583,7 @@
     if (message.text && message.text !== state?.reason) html = `<p class="${message.bad ? "rb-bad" : "rb-muted"} rb-msg" role="status">${esc(message.text)}</p>` + html;
     root.innerHTML = html;
     placeMaps();
+    updateZoom();
     for (const x of root.querySelectorAll("details[data-duid]")) if (open.has(x.dataset.duid)) x.open = true;
     if (focusId) {
       const el = document.getElementById(focusId);

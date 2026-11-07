@@ -68,6 +68,7 @@
 .rb-map-wrap { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .rb-map { position: relative; flex: 1 1 auto; min-height: 200px; background: var(--bg); border-radius: 16px; overflow: hidden; display: grid; place-items: center; }
 .rb-big .rb-map { min-height: 170px; }
+.rb-map { cursor: zoom-in; }
 .rb-map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .rb-map-note { padding: 0 16px; text-align: center; }
 .rb-map-key { display: flex; gap: 16px; flex-wrap: wrap; margin: 0; font-size: 0.85em; color: var(--muted); }
@@ -103,3 +104,11 @@
   .rb-card, .rb-card.rb-wide { flex-basis: 100%; }
   .rb-segbtn { font-size: 0.9em; }
 }
+
+/* Kartet i fullskjerm. Trykk hvor som helst for å lukke. */
+.rb-zoom { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--bg, #0F1115); color: var(--text, #E8EAEE); cursor: zoom-out; }
+.rb-zoom-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rb-zoom-title { font-size: 1.3em; font-weight: 600; }
+.rb-zoom-close { min-height: 52px; padding: 0 22px; border-radius: 14px; border: 1px solid var(--border-2, #2E3440); background: var(--surface-2, #1F232C); color: inherit; font: inherit; font-size: 1.1em; }
+.rb-zoom-map { position: relative; flex: 1 1 auto; min-height: 0; }
+.rb-zoom-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
