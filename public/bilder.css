@@ -36,28 +36,32 @@
 
 /* Lysbildevisningen dekker hele skjermen. Dørklokka og timeren (z-index 10 og høyere) ligger over. */
 .bd-show { position: fixed; inset: 0; z-index: 8; background: #000; cursor: pointer; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-.bd-layer { position: absolute; inset: 0; display: flex; gap: 6px; background: #111; opacity: 0; transition: opacity 1.2s ease; }
+.bd-layer { position: absolute; inset: 0; overflow: hidden; background: #000; opacity: 0; transition: opacity 1.2s ease; }
 /* Når man drar, følger bildet fingeren. Når man slipper, glir det resten av veien. */
 .bd-show.dragging .bd-layer { transition: none; }
 .bd-show.sliding .bd-layer { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0s; }
 .bd-layer { will-change: transform, opacity; }
 .bd-layer.on { opacity: 1; }
-.bd-pane { position: relative; flex: 1 1 0; min-width: 0; overflow: hidden; }
-/* Liggende bilder og par fyller hele flaten. Et stående bilde alene vises helt, på svart. */
-.bd-pane img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
-.bd-alone { background: #000; }
-.bd-alone .bd-pane img { object-fit: contain; }
+.bd-layer img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; -webkit-user-drag: none; }
+/* Liggende bilder fyller hele skjermen. Et stående bilde vises helt, oppå en uskarp forstørret kopi av seg selv. */
+.bd-img { object-fit: cover; }
+.bd-alone .bd-img { object-fit: contain; filter: drop-shadow(0 0 30px rgba(0, 0, 0, 0.5)); }
+.bd-blur { object-fit: cover; transform: scale(1.15); filter: blur(40px) brightness(0.65); }
 
-/* Tekst rett på bildet, med et tynt svart omriss så den kan leses på både lyse og mørke bilder. */
-.bd-ol { color: #fff; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 4px rgba(0, 0, 0, 0.6); }
-.bd-date { position: absolute; top: 20px; right: 24px; font-size: clamp(18px, 2vw, 24px); font-weight: 600; }
+/* Svak mørk toning nederst, så teksten kan leses på lyse bilder. */
+.bd-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0)); pointer-events: none; }
+.bd-show { color: #fff; font-family: Inter, system-ui, sans-serif; }
+.bd-date, .bd-now { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+.bd-date { position: absolute; right: clamp(20px, 3.8vw, 48px); bottom: clamp(20px, 4.4vw, 50px); z-index: 1; font-size: clamp(14px, 1.45vw, 19px); font-style: italic; opacity: 0.92; white-space: nowrap; }
 .bd-date:empty { display: none; }
-.bd-bottom { position: absolute; left: 28px; right: 28px; bottom: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; pointer-events: none; }
-.bd-bottom[hidden] { display: none; }
-.bd-clock { font-size: clamp(48px, 8vw, 84px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-.bd-today { display: flex; align-items: center; gap: 18px; font-size: clamp(20px, 2.6vw, 32px); font-weight: 600; white-space: nowrap; }
-.bd-wx { display: inline-flex; align-items: center; gap: 8px; }
-.bd-wx .wx-icon { filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 2px rgba(0, 0, 0, 0.7)); }
+.bd-now { position: absolute; left: clamp(20px, 4.4vw, 56px); bottom: clamp(18px, 3.6vw, 44px); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.bd-now[hidden] { display: none; }
+.bd-day { font-size: clamp(18px, 2vw, 26px); opacity: 0.92; }
+.bd-row { display: flex; align-items: center; gap: clamp(12px, 1.8vw, 22px); }
+.bd-clock { font-size: clamp(64px, 8.8vw, 112px); font-weight: 300; line-height: 0.95; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.bd-wx { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(26px, 3.1vw, 40px); }
+.bd-wx:empty { display: none; }
+.bd-wx .wx-icon { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5)); }
 
 @media (max-width: 1000px) {
   .bd { grid-template-columns: minmax(0, 1fr); }

@@ -27,7 +27,7 @@
 
   const dateFmt = new Intl.DateTimeFormat("nb-NO", { day: "numeric", month: "long", year: "numeric" });
   const clockFmt = new Intl.DateTimeFormat("nb-NO", { hour: "2-digit", minute: "2-digit" });
-  const weekdayFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "long" });
+  const todayFmt = new Intl.DateTimeFormat("nb-NO", { weekday: "short", day: "numeric", month: "short" });
 
   let root = null;
   let opts = {};
@@ -184,7 +184,7 @@
         <div class="bd-seg" role="group" aria-labelledby="bd-speed-h">${SPEED.map(([v, l]) => chip(v, l, settings.speed === v, "speed")).join("")}</div>
         <div class="bd-toggles">
           <button type="button" class="bd-toggle" data-act="shuffle" aria-pressed="${settings.shuffle}"><strong>Tilfeldig rekkefølge</strong><small>${settings.shuffle ? "Blander bildene" : "Eldste først"}</small></button>
-          <button type="button" class="bd-toggle" data-act="clock" aria-pressed="${settings.clock}"><strong>Klokke og vær</strong><small>Nederst på bildet i lysbildevisningen</small></button>
+          <button type="button" class="bd-toggle" data-act="clock" aria-pressed="${settings.clock}"><strong>Klokke og vær</strong><small>Nede til venstre i lysbildevisningen</small></button>
         </div>
         ${summary.skipped ? `<p class="bd-note">${summary.skipped === 1 ? "1 bilde" : `${summary.skipped} bilder`} i HEIC- eller RAW-format vises ikke.</p>` : ""}
       </section>`;
@@ -228,23 +228,17 @@
   let showSeq = 0;
   const portrait = (p) => p.w > 0 && p.h > p.w;
 
-  /** Deler rekkefølgen opp i lysbilder. Et stående bilde får følge av det neste stående bildet. */
+  /** Ett bilde per lysbilde, i rekkefølgen fra fanen. */
   function buildSlides() {
-    const rotated = order.slice(pos).concat(order.slice(0, pos));
-    const out = [];
-    let waiting = -1;
-    for (const i of rotated) {
-      if (!portrait(list[i])) {
-        out.push([i]);
-      } else if (waiting < 0) {
-        waiting = out.length;
-        out.push([i]);
-      } else {
-        out[waiting].push(i);
-        waiting = -1;
-      }
-    }
-    return out;
+    return order.slice(pos).concat(order.slice(0, pos)).map((i) => [i]);
+  }
+
+  /** «2. november 2014 · 12 år siden» */
+  function photoCaption(p) {
+    const d = photoDate(p);
+    if (!d) return "";
+    const years = new Date().getFullYear() - Number(p.date.slice(0, 4));
+    return years > 0 ? `${d} · ${years} år siden` : d;
   }
 
   function start() {
@@ -257,7 +251,7 @@
     show.setAttribute("role", "dialog");
     show.setAttribute("aria-label", "Lysbildevisning. Dra sideveis for å bla, trykk for å lukke.");
     show.innerHTML = `<div class="bd-layer"></div><div class="bd-layer"></div>
-      <div class="bd-bottom" ${settings.clock ? "" : "hidden"}><span class="bd-clock bd-ol"></span><span class="bd-today bd-ol"></span></div>`;
+      <div class="bd-now" ${settings.clock ? "" : "hidden"}><span class="bd-day"></span><span class="bd-row"><span class="bd-clock"></span><span class="bd-wx"></span></span></div>`;
     show.addEventListener("pointerdown", onDown);
     show.addEventListener("pointermove", onMove);
     show.addEventListener("pointerup", onUp);
@@ -295,22 +289,29 @@
     return { front, back: front === a ? b : a };
   };
 
-  /** Legger bildene i et lag. Bilder som ikke er lastet ennå, dukker opp når de er klare. */
+  /** Legger bildet i et lag. Et stående bilde vises helt, oppå en uskarp forstørret kopi av seg selv. */
   function fillLayer(layer, photos, imgs = []) {
-    layer.className = `bd-layer${photos.length > 1 ? " bd-pair" : portrait(photos[0]) ? " bd-alone" : ""}`;
-    layer.replaceChildren(
-      ...photos.map((p, k) => {
-        const img = imgs[k] ?? Object.assign(new Image(), { decoding: "async", src: src(p) });
-        const pane = document.createElement("div");
-        pane.className = "bd-pane";
-        img.alt = photoDate(p) ? `Bilde tatt ${photoDate(p)}` : "Bilde";
-        const date = document.createElement("span");
-        date.className = "bd-date bd-ol";
-        date.textContent = photoDate(p);
-        pane.append(img, date);
-        return pane;
-      }),
-    );
+    const p = photos[0];
+    const img = imgs[0] ?? Object.assign(new Image(), { decoding: "async", src: src(p) });
+    layer.className = `bd-layer${portrait(p) ? " bd-alone" : ""}`;
+    img.className = "bd-img";
+    img.alt = photoDate(p) ? `Bilde tatt ${photoDate(p)}` : "Bilde";
+    const parts = [];
+    if (portrait(p)) {
+      const blur = new Image();
+      blur.className = "bd-blur";
+      blur.alt = "";
+      blur.src = img.src;
+      parts.push(blur);
+    }
+    const date = document.createElement("span");
+    date.className = "bd-date";
+    date.textContent = photoCaption(p);
+    // Toningen ligger i hvert lag, under datoen, så datoen ikke blir mørkere av den.
+    const shade = document.createElement("div");
+    shade.className = "bd-shade";
+    parts.push(img, shade, date);
+    layer.replaceChildren(...parts);
   }
 
   const slidePhotos = (at) => slides[at].map((i) => list[i]);
@@ -439,13 +440,11 @@
     if (!show) return;
     const now = new Date();
     show.querySelector(".bd-clock").textContent = clockFmt.format(now);
-    const weekday = weekdayFmt.format(now);
-    const date = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}`;
+    const day = todayFmt.format(now);
+    show.querySelector(".bd-day").textContent = day.charAt(0).toUpperCase() + day.slice(1);
     const wx = opts.weather?.();
     const W = window.Weather;
-    show.querySelector(".bd-today").innerHTML = `<span>${esc(weekday.charAt(0).toUpperCase() + weekday.slice(1))} ${date}</span>${
-      wx && W ? `<span class="bd-wx">${esc(W.temp(wx.temp))}${W.icon(wx.symbol, 44, wx.text || "")}</span>` : ""
-    }`;
+    show.querySelector(".bd-wx").innerHTML = wx && W ? `${W.icon(wx.symbol, 48, wx.text || "")}<span>${esc(W.temp(wx.temp))}</span>` : "";
   }
 
   function stop() {
